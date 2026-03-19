@@ -1,0 +1,43 @@
+---
+description: 공식 문서 기반 속보 콘텐츠 자동 생성 AI 캡스톤디자인 프로젝트 컨텍스트
+globs: 
+alwaysApply: true
+---
+
+# 속보생성 AI 프로젝트 규칙
+
+이 프로젝트는 빅데이터 캡스톤디자인 과제로, 언론사 '미디어스'와 협업하는 **RAG 기반 속보기사 생성 보조 시스템**이다.
+
+## 담당
+
+- **풀스택**: API + 프론트엔드 통합 개발
+- **크롤링 / AI 전처리**: 미정 (구현 추상화)
+
+## 핵심 참조
+
+- **전체 기획 및 구현 가이드**: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+- **원본 문서**: `2팀 속보생성 보조시스템.docx`, `2팀 속보생성 보조시스템-구현방법.docx`
+
+## 기술 스택
+
+- **풀스택**: FastAPI, React + Vite
+- **크롤링**: requests, BeautifulSoup (미정)
+- **RAG**: sentence-transformers, Chroma/Qdrant/FAISS (미정)
+- **LLM**: Claude API 1차, Ollama 온프레미스 전환 예정
+- **배포**: Docker, AWS (상세 미정)
+
+## 추상화 원칙
+
+크롤링/AI 담당 미정이므로 `backend/adapters/`에 Protocol 정의. 담당 확정 시 구현체만 교체.
+
+- `PressReleaseProvider`: 보도자료 목록
+- `RAGService`: RAG 검색
+- `ArticleGenerator`: 기사 생성
+
+## JSON 스키마 (기사 재료)
+
+who, policy, decision, target, numbers, origin
+
+## 파이프라인
+
+크롤링 → 청킹 → 임베딩 → 벡터DB → RAG 검색 → JSON 추출 → 기사 생성 → 사실 검증
