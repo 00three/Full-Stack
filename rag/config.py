@@ -1,6 +1,12 @@
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+
+# 프로젝트 루트의 .env 자동 로드. 시스템 환경변수가 우선 (덮어쓰기 X).
+load_dotenv()
+
 
 @dataclass
 class DBConfig:

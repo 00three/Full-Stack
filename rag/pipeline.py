@@ -2,17 +2,22 @@
 메인 파이프라인: 검색 → LLM → 기사 출력
 """
 
+from .embedder import encode_query
 from .search import hybrid_search
 from .llm import extract_json, generate_article, verify_article
 
 
-def run(query_text: str, query_embedding: list[float], selected_indices: list[int] | None = None) -> dict:
+def run(
+    query_text: str,
+    query_embedding: list[float] | None = None,
+    selected_indices: list[int] | None = None,
+) -> dict:
     """
     RAG 전체 파이프라인 실행
 
     Args:
         query_text: 보도자료 텍스트 (검색 쿼리)
-        query_embedding: 보도자료 임베딩 벡터 (BGE-M3, 1024차원)
+        query_embedding: BGE-M3 1024d 벡터. None이면 query_text를 자동 임베딩.
         selected_indices: 기자가 선택한 참고 기사 인덱스 (None이면 전체 사용)
 
     Returns:
@@ -24,6 +29,10 @@ def run(query_text: str, query_embedding: list[float], selected_indices: list[in
             "verification": {...},       # 3차 LLM: 사실검증 결과
         }
     """
+
+    # 0. query 임베딩 (외부에서 안 넘기면 자동 생성)
+    if query_embedding is None:
+        query_embedding = encode_query(query_text)
 
     # 1. 검색: dense + keyword → RRF → 시간 가중치 → Re-ranking → 10개
     search_results = hybrid_search(query_text, query_embedding)

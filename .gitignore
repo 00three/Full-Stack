@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .env
+
+# RAG ingest 입력 데이터 (크롤러 산출물, 별도 레포에서 관리)
+rag/data/*.jsonl
