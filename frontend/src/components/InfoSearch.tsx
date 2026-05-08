@@ -9,6 +9,7 @@ interface RelatedArticle {
   source: string;
   date: string;
   source_release_title?: string;
+  detail_url?: string;
 }
 
 interface InfoSearchProps {
@@ -122,9 +123,21 @@ export function InfoSearch(props: InfoSearchProps) {
                       <span>{article.source}</span>
                       <span>{article.date}</span>
                     </div>
-                    <span className="text-[10px] text-[#5C6832] hover:underline inline-flex items-center gap-1">
-                      원문 보기 <ExternalLink className="w-2.5 h-2.5" />
-                    </span>
+                    {article.detail_url ? (
+                      <a
+                        href={article.detail_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[10px] text-[#5C6832] hover:underline inline-flex items-center gap-1"
+                      >
+                        원문 보기 <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    ) : (
+                      <span className="text-[10px] text-gray-400 inline-flex items-center gap-1">
+                        원문 없음
+                      </span>
+                    )}
                   </div>
                   {selectedRefs.includes(article.id) && (
                     <Check className="w-5 h-5 text-[#5C6832] shrink-0 ml-3" strokeWidth={2.5} />

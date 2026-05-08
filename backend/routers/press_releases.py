@@ -2,75 +2,124 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.data.mock import MOCK_CONTENT, MOCK_JSON, MOCK_RELATED, MOCK_RELATED_CONTENT
-from backend.deps import get_press_release_provider
+from backend.deps import (
+    get_press_release_provider,
+    get_rag_service,
+    get_article_generator,
+)
+
 
 router = APIRouter(prefix="/press-releases", tags=["press-releases"])
 
 
 @router.get("")
 def get_press_releases(q: str | None = None, provider=Depends(get_press_release_provider)):
-    """보도자료 목록 반환. q=검색어 시 필터링. 추상화: 담당 확정 시 실제 크롤러 데이터."""
-    items = provider.get_releases()
-    if q:
-        q_lower = q.lower()
-        items = [
-            i
-            for i in items
-            if q_lower in i.get("title", "").lower()
-            or q_lower in i.get("source", "").lower()
-            or q_lower in i.get("summary", "").lower()
-        ]
-    return items
+    """보도자료 목록 반환. q=검색어 시 title/source/summary/content_text ILIKE 검색."""
+    # provider가 q를 직접 받으면 SQL 레벨에서 본문까지 검색 (DB 구현체)
+    try:
+        return provider.get_releases(q=q)
+    except TypeError:
+        # Mock 등 q 파라미터 미지원 → Python 필터로 fallback
+        items = provider.get_releases()
+        if q:
+            ql = q.lower()
+            items = [
+                i for i in items
+                if ql in (i.get("title") or "").lower()
+                or ql in (i.get("source") or "").lower()
+                or ql in (i.get("summary") or "").lower()
+            ]
+        return items
 
 
 @router.get("/related")
-def get_related_articles_batch(ids: str = "", provider=Depends(get_press_release_provider)):
-    """복수 보도자료 ID에 대한 참고 기사 + JSON 통합. ids=1,2,3 형태."""
+def get_related_articles_batch(
+    ids: str = "",
+    provider=Depends(get_press_release_provider),
+    rag=Depends(get_rag_service),
+    gen=Depends(get_article_generator),
+):
+    """복수 보도자료 ID에 대한 참고 기사 + 핵심 정보 JSON. ids=1,2,3 형태."""
     release_ids = [x.strip() for x in ids.split(",") if x.strip()]
     if not release_ids:
-        return {"related": [], "json": {"who": "-", "policy": "-", "decision": "-", "target": "-", "numbers": "-", "origin": "-"}}
+        return {"related": [], "json": _empty_json()}
 
-    seen = set()
-    merged_related = []
+    seen: set[str] = set()
+    merged_related: list[dict] = []
+    last_release: dict | None = None
+
     for rid in release_ids:
-        for r in MOCK_RELATED.get(rid, []):
-            if r["id"] not in seen:
-                seen.add(r["id"])
-                merged_related.append(r)
+        pr = provider.get_release_by_id(rid)
+        if not pr:
+            continue
+        last_release = pr
+        # query는 보도자료 본문(또는 제목 fallback)
+        query = pr.get("content_text") or pr.get("title", "")
+        chunks = rag.search_related(
+            query_text=query,
+            source_release_id=pr["id"],
+            source_release_title=pr.get("title", ""),
+        )
+        # 같은 chunk_id 중복 제거 + 본인 보도자료 chunk 제외
+        for c in chunks:
+            cid = c.get("id")
+            if not cid or cid in seen:
+                continue
+            seen.add(cid)
+            merged_related.append(c)
 
-    json_data = MOCK_JSON.get(
-        release_ids[-1],
-        {"who": "-", "policy": "-", "decision": "-", "target": "-", "numbers": "-", "origin": "-"},
-    )
+    # 마지막 보도자료 기준으로 핵심 JSON 추출
+    json_data = gen.extract_only(last_release) if last_release else _empty_json()
+
     return {"related": merged_related, "json": json_data}
 
 
 @router.get("/related-articles/{article_id}")
-def get_related_article_detail(article_id: str):
-    """참고 기사 원문(content_text) 조회."""
-    content = MOCK_RELATED_CONTENT.get(article_id, "(원문 없음)")
-    return {"id": article_id, "content_text": content}
+def get_related_article_detail(article_id: str, rag=Depends(get_rag_service)):
+    """참고 기사(chunk) 원문 조회."""
+    content = rag.get_chunk_content(article_id)
+    if not content:
+        return {"id": article_id, "content_text": "(원문 없음)"}
+    return {"id": article_id, "content_text": content.get("content_text", "")}
 
 
 @router.get("/{release_id}/related")
-def get_related_articles(release_id: str, provider=Depends(get_press_release_provider)):
-    """선택된 보도자료 기반 참고 기사 + 기사 핵심 정보. 추상화: 담당 확정 시 실제 RAG."""
-    related = MOCK_RELATED.get(release_id, [])
-    json_data = MOCK_JSON.get(
-        release_id,
-        {"who": "-", "policy": "-", "decision": "-", "target": "-", "numbers": "-", "origin": "-"},
+def get_related_articles(
+    release_id: str,
+    provider=Depends(get_press_release_provider),
+    rag=Depends(get_rag_service),
+    gen=Depends(get_article_generator),
+):
+    """단일 보도자료의 참고 기사 + 기사 핵심 정보."""
+    pr = provider.get_release_by_id(release_id)
+    if not pr:
+        return {"related": [], "json": _empty_json()}
+
+    query = pr.get("content_text") or pr.get("title", "")
+    related = rag.search_related(
+        query_text=query,
+        source_release_id=pr["id"],
+        source_release_title=pr.get("title", ""),
     )
+    json_data = gen.extract_only(pr)
     return {"related": related, "json": json_data}
 
 
 @router.get("/{release_id}")
 def get_press_release_detail(release_id: str, provider=Depends(get_press_release_provider)):
     """보도자료 상세 (원문 content_text 포함)."""
-    items = provider.get_releases()
-    found = next((i for i in items if i.get("id") == release_id), None)
-    if not found:
+    pr = provider.get_release_by_id(release_id)
+    if not pr:
         raise HTTPException(status_code=404, detail="Not found")
-    result = dict(found)
-    result["content_text"] = MOCK_CONTENT.get(release_id, "")
-    return result
+    return pr
+
+
+def _empty_json() -> dict:
+    return {
+        "who": "-",
+        "policy": "-",
+        "decision": "-",
+        "target": "-",
+        "numbers": "-",
+        "origin": "-",
+    }

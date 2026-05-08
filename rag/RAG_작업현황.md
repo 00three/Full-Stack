@@ -1,189 +1,133 @@
 # RAG 모듈 작업 현황
 
-> 브랜치: `rag` | 최종 작업일: 2026-03-19
+> 브랜치: `rag` | 최종 갱신: 2026-05-09
+> 본인 단독 트랙. EDA 레포(분류기)는 RAG 파이프라인에 사용하지 않음.
 
 ---
 
-## 1. 현재 완료된 작업
+## 1. 완료 — 가이드 8단계 100% 구현
 
-### 파일 구조
+### 파일 구조 (rag/)
+
+| 파일 | 역할 | 가이드 단계 |
+|---|---|---|
+| `schema.sql` | DDL: raw_documents/documents/generated_articles/process_log + pgvector + HNSW/GIN 인덱스 | DB |
+| `config.py` | DBConfig / LLMConfig / SearchConfig + .env 자동 로드 | 공통 |
+| `preprocess.py` | body+pdf 결합, HTML 제거, 숫자/단위 보존, source 정규화 | 1·2 |
+| `chunker.py` | LangChain Recursive 청킹 (400자/overlap 100) | 3 |
+| `contextualizer.py` | gpt-4o-mini로 chunk 맥락 prefix 생성, 토큰·비용 누적 | 4 |
+| `embedder.py` | 메타prefix + full_text 조립 + BGE-M3 1024d 임베딩 + query encode 유틸 | 5·6·7 |
+| `ingest.py` | UPSERT raw → chunk → embed → 코사인 0.95 dedup → INSERT documents | 8·전체 |
+| `search.py` | dense + tsvector hybrid → RRF → 시간 가중치 → cross-encoder rerank | 검색 |
+| `llm.py` | 1차 JSON 추출 → 2차 기사 생성 → 3차 사실검증 | 생성 |
+| `pipeline.py` | 검색·LLM 통합 진입점 (query 자동 임베딩) | 통합 |
+| `search_test.py` | 검색 동작 검증 단발 스크립트 | 검증 |
+| `ERD.md` | DB 스키마 문서 (실데이터 매핑 반영) | 문서 |
+| `팀원_가이드_전처리.md` / `팀원_가이드_크롤링.md` | 입출력 명세 (수정 X) | 문서 |
+| `requirements.txt` | psycopg2 / pgvector / openai / FlagEmbedding / langchain / numpy / dotenv 등 | 의존성 |
+| `data/results_2026-04-21.jsonl` | 크롤러 입력 (gitignored, 340건 2.3MB) | 데이터 |
+
+### 풀 ingest 결과 (2026-05-09)
 
 ```
-rag/
-├── __init__.py          # 패키지 초기화
-├── config.py            # 설정 (DB, OpenAI, 검색 파라미터)
-├── search.py            # 검색 전체 (dense + tsvector + RRF + 시간가중치 + Re-ranking)
-├── llm.py               # LLM 3단계 (JSON 추출 → 기사 생성 → 사실검증)
-├── pipeline.py          # search + llm 연결하는 메인 진입점
-├── requirements.txt     # 의존성 (psycopg2, openai, sentence-transformers)
-└── RAG_작업현황.md       # 이 문서
+처리 docs       : 340
+생성 chunks     : 2,978
+신규 INSERT     : 2,032 (68%)
+중복 병합       : 946 (32% — cross-source 중복)
+에러            : 0
+소요 시간       : 7,295s (~2시간)
+contextualizer  : 2,978 calls, 7.6M+0.19M tokens, ~$1.26
 ```
 
-### 각 파일 상세
+### end-to-end 검증 (search → LLM)
 
-#### config.py
-- `DBConfig`: PostgreSQL 연결 정보 (환경변수 또는 기본값)
-- `LLMConfig`: OpenAI API 키, 모델(gpt-4o-mini), temperature(0.3)
-- `SearchConfig`: 검색 파라미터
-  - RRF 가중치 (dense 0.5 / keyword 0.5)
-  - 후보 수: 30개 → 15개 → 10개
-  - 시간 감쇠 반감기: 365일
-
-#### search.py
-- `dense_search()`: pgvector 코사인 유사도 검색
-- `keyword_search()`: PostgreSQL tsvector 키워드 검색
-- `rrf_fusion()`: 두 검색 결과를 RRF로 합산 → 30개
-- `apply_time_decay()`: 지수 감쇠 시간 가중치 적용 → 15개
-- `rerank()`: klue-cross-encoder-v1로 Re-ranking → 10개
-- `hybrid_search()`: 위 전체를 연결하는 통합 함수
-
-#### llm.py
-- `extract_json()`: 1차 LLM - chunk에서 핵심 팩트 JSON 추출 (who, policy, decision, target, numbers, origin, effect)
-- `generate_article()`: 2차 LLM - JSON 기반 속보기사 생성 (제목/리드/본문)
-- `verify_article()`: 3차 LLM - 1차 JSON vs 2차 기사 비교 사실검증
-- `_call_llm()`: 공통 OpenAI 호출 (재시도 3회)
-- JSON 파싱 실패 시 재요청 로직 포함
-
-#### pipeline.py
-- `run()`: 전체 파이프라인 실행
-  - 입력: query_text, query_embedding, selected_indices(기자 선택)
-  - 출력: search_results, selected_chunks, extracted_json, article, verification
+- `python -m rag.search_test` — "방송 토론 지방선거" 쿼리로 10건 결과 확인
+- 백엔드 + 프론트 띄워 OECD / 이동통신 / 한-인도 정상회담 등 다양한 query에서 정상 동작
+- LLM 1차 JSON 추출 + 2차 기사 생성 모두 동작
 
 ---
 
-## 2. 아직 안 한 작업 (TODO)
+## 2. 백엔드 어댑터 (backend/adapters/)
 
-### 우선순위 높음 (팀원 합의 후)
+| 파일 | 역할 |
+|---|---|
+| `db_provider.py` | DBPressReleaseProvider — raw_documents 조회 (DISTINCT ON dedup) |
+| `rag_service.py` | DBRAGService — hybrid_search 래퍼, 같은 article dedup, detail_url JOIN |
+| `article_generator.py` | LLMArticleGenerator — extract_json + generate_article |
+| `mock_provider.py` | Mock 3종 (USE_MOCK=1 토글용 fallback) |
+| `providers.py` / `rag.py` / `generator.py` | Protocol 인터페이스 (변경 없음) |
 
-- [ ] **DB 스키마 확정**: 백엔드 담당과 pgvector 테이블 구조 합의
-  - documents 테이블 컬럼명, 타입 확인
-  - search.py의 SQL 쿼리가 실제 테이블과 맞는지 검증
-- [ ] **크롤링 데이터 형식 합의**: 크롤링/전처리 담당과 chunk 데이터 형식 확정
-  - chunk_id 형식 (예: KCC_20260305_001)
-  - original_text, full_text 구분
-  - 메타데이터 필드 (source, date, title, data_type)
-- [ ] **백엔드 API 연동**: 백엔드의 어댑터 패턴에 맞게 연결
-  - `backend/adapters/`의 RAGService, ArticleGenerator 구현체 작성
-  - 현재 Mock → rag 모듈 호출로 교체
-
-### 우선순위 중간 (데이터 들어온 후)
-
-- [ ] **프롬프트 튜닝**
-  - JSON 추출: Few-shot 예시 추가
-  - 기사 생성: 미디어스 스타일 예시 기사 3개 추가
-  - 사실검증: 검증 항목별 점수화
-- [ ] **citations 필드 추가**: llm.py의 generate_article 반환값에 출처 정보 포함
-  - 백엔드가 기대하는 형식:
-    ```json
-    {
-      "title": "...",
-      "lead": "...",
-      "body": "...[1]...[2]",
-      "citations": {
-        "1": { "category": "...", "title": "...", "date": "...", "url": "..." }
-      }
-    }
-    ```
-  - 현재는 title, lead, body만 반환 중
-- [ ] **임베딩 함수**: query_text를 BGE-M3로 임베딩하는 유틸 함수 추가
-  - 현재 pipeline.run()은 query_embedding을 외부에서 받음
-  - BGE-M3 로딩 + encode 함수 필요
-
-### 우선순위 낮음 (고도화)
-
-- [ ] **RAGAS 평가 모듈**: 오프라인 실험용 스크립트
-- [ ] **청킹 사이즈 실험**: 200 / 400 / 600자 비교
-- [ ] **시간 가중치 실험**: 180 / 365 / 730일 비교
-- [ ] **에러 핸들링 강화**: process_log 테이블 연동
-- [ ] **Contextual Retriever**: 청킹 시 LLM으로 맥락 prefix 생성 (전처리 담당과 협의)
+`backend/deps.py` — 환경변수 `USE_MOCK`으로 Mock/실제 토글.
+`backend/routers/press_releases.py` / `articles.py` — Mock 직접 사용 → DI 어댑터 호출로 교체.
 
 ---
 
-## 3. 백엔드 연동 시 참고 (README 부록 기반)
+## 3. 환경 / 실행 방법
 
-### 연동할 API 2개
+### 사전 조건
+- macOS + brew PostgreSQL 17 (running on `localhost:5432`)
+- pgvector 0.8.2 (HNSW 지원)
+- conda env `rag` (Python 3.11)
+- `.env` 파일 (gitignored): PG_*, OPENAI_API_KEY
 
-| 기능 | API | 현재 상태 |
-|------|-----|----------|
-| 참고 기사 검색 | `GET /press-releases/related?ids=1,2,3` | Mock 사용 중 → search.py로 교체 |
-| 기사 생성 | `POST /articles/generate` | Mock 사용 중 → llm.py로 교체 |
-
-### 연동 파일
-
-- `backend/adapters/providers.py` → RAGService Protocol
-- `backend/routers/press_releases.py` → get_related_articles_batch 함수
-- `backend/routers/articles.py` → generate_article 함수
-- `backend/deps.py` → 의존성 주입 (Mock → 실제 구현체 교체)
-
-### 검색 결과 반환 형식 (백엔드가 기대)
-
-```json
-{
-  "id": "참고 기사 ID (= chunk_id)",
-  "title": "제목",
-  "source": "출처",
-  "date": "날짜",
-  "source_release_id": "연관 보도자료 ID (선택)",
-  "source_release_title": "연관 보도자료 제목 (선택)"
-}
-```
-
----
-
-## 4. 기술 스택 요약
-
-| 분야 | 기술 | 비고 |
-|------|------|------|
-| DB | PostgreSQL + pgvector | dense 벡터 + tsvector 키워드 통합 |
-| 임베딩 | BGE-M3 (1024차원) | 전처리 담당이 임베딩 생성 |
-| 검색 | Hybrid (dense + tsvector) + RRF | search.py에 구현 |
-| 시간 가중치 | 지수 감쇠 (half_life 365일) | search.py에 구현 |
-| Re-ranking | bongsoo/klue-cross-encoder-v1 | search.py에 구현 |
-| LLM | OpenAI gpt-4o-mini | llm.py에 구현 |
-| 의존성 | psycopg2, openai, sentence-transformers | requirements.txt |
-
----
-
-## 5. 실행 방법 (나중에 테스트 시)
-
+### 적재
 ```bash
-# 1. rag 브랜치 확인
-git checkout rag
+conda activate rag
+python -m rag.ingest                # 4단계 포함 (~$1, ~30분~1시간)
+python -m rag.ingest --no-context   # 4단계 skip (무료, ~10분)
+python -m rag.ingest --limit 5      # 디버그용
+```
 
-# 2. 가상환경 생성 + 의존성 설치
-python -m venv .venv
-source .venv/bin/activate
-pip install -r rag/requirements.txt
+### 백엔드 + 프론트 (데모용)
+```bash
+# 터미널 1
+conda activate rag
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
-# 3. 환경변수 설정
-export PG_HOST=localhost
-export PG_PORT=5432
-export PG_DATABASE=rag_db
-export PG_USER=postgres
-export PG_PASSWORD=postgres
-export OPENAI_API_KEY=sk-...
-
-# 4. 파이프라인 테스트 (pgvector에 데이터 있어야 함)
-python -c "
-from rag.pipeline import run
-result = run(
-    query_text='소상공인 정책 연장',
-    query_embedding=[0.1] * 1024,  # 실제로는 BGE-M3 임베딩
-)
-print(result)
-"
+# 터미널 2
+cd frontend && npm install && npm run dev
+# → http://localhost:5173
 ```
 
 ---
 
-## 6. 팀원에게 공유할 내용
+## 4. 알려진 데이터 한계 (크롤러 측)
 
-### 크롤링/전처리 담당에게
-- pgvector `documents` 테이블에 데이터 넣어주면 검색 가능
-- 필요한 컬럼: chunk_id, source, date, title, original_text, full_text, embedding_dense(1024차원)
-- chunk_id 형식 합의 필요
+1. HWP는 PrvText 미리보기만 추출 (실본문 누락 가능)
+2. 첨부파일 1개만 추출 (PDF > DOCX > HWPX > HWP 우선순위)
+3. 표 데이터 별도 추출 안 됨 (텍스트로 평탄화)
+4. 같은 보도자료가 다른 URL로 두 번 수집되어 doc_id만 다른 케이스 존재 — 백엔드에서 `DISTINCT ON (title, source, date)`로 우회
 
-### 백엔드 담당에게
-- `rag/` 모듈 완성되면 `backend/adapters/`에서 import해서 사용
-- 현재 Mock 데이터 → rag.pipeline.run()으로 교체
-- citations 필드 형식 최종 확인 필요
+---
+
+## 5. TODO (데모 후 / 배포 단계)
+
+### 즉시
+- [ ] LLM 프롬프트 강화: 출처 마커 `[1]` 누락·추측성 표현 잡기
+- [ ] DB 컬럼 누락 검증: 풀 ingest 후 raw_documents가 220건만 있는 이유 (340 → 220 차이) 점검
+
+### 백엔드 연동 후
+- [ ] AWS RDS 마이그레이션 (백엔드 팀원, 동일 schema.sql 재실행)
+- [ ] EC2에서 ingest 자동화 (cron 또는 크롤러 후속 트리거)
+- [ ] 백엔드 Docker 이미지에 RAG 의존성 포함 (현재 host에서만 실행됨)
+
+### 검색 품질 고도화
+- [ ] 청킹 사이즈 실험 (200/400/600 비교)
+- [ ] 시간 가중치 반감기 실험 (180/365/730일)
+- [ ] Contextual Retriever 프롬프트 튜닝
+- [ ] RAGAS 평가 모듈 추가
+
+### 데이터 품질
+- [ ] 크롤러: HWP 본문 풀 추출 (pyhwp BodyText 파싱)
+- [ ] 크롤러: 첨부파일 모두 추출
+- [ ] 크롤러: URL 정규화로 doc_id 중복 차단
+- [ ] 표 데이터(`table_natural`) 추출 추가
+
+---
+
+## 6. 참고
+
+- 가이드 명세: `rag/팀원_가이드_전처리.md` (8단계 입출력 정의)
+- ERD: `rag/ERD.md` (DB 스키마 + 컬럼 의미)
+- 크롤러 레포: `https://github.com/capstone-bigdata-team/Crawler`
+- EDA 레포: `https://github.com/capstone-bigdata-team/EDA` (RAG와 무관)

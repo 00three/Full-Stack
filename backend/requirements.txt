@@ -1,2 +1,7 @@
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
+# rag/ 모듈이 host에서 import되어 자동으로 가져오는 deps:
+#   psycopg2-binary, pgvector, openai, sentence-transformers,
+#   FlagEmbedding, langchain-text-splitters, beautifulsoup4, lxml,
+#   numpy, python-dotenv
+# (rag/requirements.txt에서 한 번에 설치)
