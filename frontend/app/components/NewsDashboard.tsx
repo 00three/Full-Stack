@@ -59,6 +59,16 @@ const SourceLogo = ({ source }: { source: string }) => {
       src: '/logos/02_nsp_nail_logo_white.png',
       className: 'h-5 sm:h-6 max-w-[64px] w-auto object-contain opacity-95',
       fallback: 'bg-[#1d4ed8] text-white px-1.5 py-0.5 font-bold text-[9px] rounded-sm shadow-sm'
+    },
+    'KCC': {
+      src: '/logos/kcc.png?v=20260428-white',
+      className: 'h-5 sm:h-6 max-w-[145px] sm:max-w-[175px] w-auto opacity-95 drop-shadow-[0_0_3px_rgba(255,255,255,0.25)]',
+      fallback: 'bg-white px-1.5 py-0.5 rounded-sm text-black font-bold text-[9px]'
+    },
+    'NODONG': {
+      src: '/logos/언론노조.png?v=20260428-union-white',
+      className: 'h-5 sm:h-6 max-w-[145px] sm:max-w-[165px] w-auto object-contain drop-shadow-[0_0_3px_rgba(255,255,255,0.25)]',
+      fallback: 'bg-[#b91c1c] text-white px-1.5 py-0.5 font-bold tracking-widest text-[9px] rounded-sm flex items-center gap-1 shadow-sm'
     }
   };
 
@@ -75,7 +85,7 @@ const SourceLogo = ({ source }: { source: string }) => {
   if (logo?.fallback) {
      return (
         <span className={`${logo.fallback} shrink-0`}>
-          {source === '언론노조' && <span className="text-[10px] leading-none -mt-0.5">✊</span>}
+          {(source === '언론노조' || source === 'NODONG') && <span className="text-[10px] leading-none -mt-0.5">✊</span>}
           {source}
         </span>
      );
