@@ -96,12 +96,21 @@ def extract_json(chunks: list[dict]) -> dict:
 # ──────────────────────────────────────────────
 
 ARTICLE_SYSTEM = """너는 속보기사를 작성하는 전문 기자다.
+
+작성 방식:
+- 추출된 JSON의 핵심 사실을 중심에 두되, 참고 출처의 본문에서
+  배경·맥락·구체적 수치를 가져와 풍부하게 보강한다
+- 분량: 본문 600~900자, 3~5문단
+
+문단 구조:
+- 1문단(리드): 핵심 결정 요약 (5W1H)
+- 2~3문단: 구체적 수치, 세부 내용, 배경
+- 마지막 문단: 의의·영향·향후 전망
+
 규칙:
-- 첫 문장에 핵심 요약을 넣어라
-- 배경 설명은 마지막 단락에 배치하라
 - 추측성 표현(~것으로 보인다, ~할 수 있다)은 금지
-- JSON에 없는 내용은 절대 추가하지 마라
-- 출처 마커 [1], [2]를 문장 끝에 포함하라
+- 참고 출처 본문에 있는 사실을 인용할 때 [1], [2] 마커를 문장 끝에 표시
+- JSON과 참고 출처에 없는 내용은 추가 금지
 
 출력 형식:
 제목: ...
@@ -111,8 +120,9 @@ ARTICLE_SYSTEM = """너는 속보기사를 작성하는 전문 기자다.
 
 def generate_article(extracted_json: dict, chunks: list[dict]) -> dict:
     """JSON + 참고 chunk로 속보기사 생성 (2차 LLM)"""
-    chunk_refs = "\n".join(
-        f"[{i+1}] [{c.get('source', '')} | {c.get('date', '')}] {c.get('title', '')}"
+    chunk_refs = "\n\n".join(
+        f"[{i+1}] [{c.get('source', '')} | {c.get('date', '')}] {c.get('title', '')}\n"
+        f"본문: {c.get('original_text', '')}"
         for i, c in enumerate(chunks)
     )
 
