@@ -1,106 +1,29 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { 
-  Search, RefreshCcw, ExternalLink, 
+import {
+  Search, RefreshCcw, ExternalLink,
   ChevronRight, ArrowRight, Download, FileText,
   Info
 } from 'lucide-react';
+import {
+  fetchPressReleases,
+  fetchRelatedArticles,
+  generateArticle,
+  type PressRelease,
+  type RelatedArticle,
+  type GeneratedArticle,
+} from '@/lib/api';
+import { BodyWithCitations } from './BodyWithCitations';
 
-// --- Types ---
-interface PressRelease {
-  id: string;
-  title: string;
-  source: string;
-  date: string;
-  summary: string;
-  isNew: boolean;
-  url: string;
+function sortPressReleases(items: PressRelease[]): PressRelease[] {
+  return [...items].sort((a, b) => {
+    if (a.isNew === b.isNew) {
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    }
+    return a.isNew ? -1 : 1;
+  });
 }
-
-interface Article {
-  id: string;
-  title: string;
-  source: string;
-  date: string;
-  url: string;
-}
-
-// --- Mock Data ---
-const MOCK_PRS: PressRelease[] = [
-  {
-    id: 'pr-1',
-    title: "[보도자료] 방송통신위원회, 인터넷망 중립성 개선방안 발표",
-    source: "방송통신위원회",
-    date: "2026-04-27",
-    summary: "방송통신위원회는 인터넷 생태계의 상생 발전을 위해 망 중립성 및 인터넷 트래픽 관리 가이드라인의 개정안을 마련하고 본격 추진한다고 밝혔다. 골목상권 활성화 및 데이터 기반 마케팅 지원 강화 목적.",
-    isNew: true,
-    url: "#"
-  },
-  {
-    id: 'pr-5',
-    title: "언론노조 성명서전문: '재벌 특혜적 망 중립성 정책 즉각 철회하라'",
-    source: "언론노조",
-    date: "2026-04-27",
-    summary: "전국언론노동조합 긴급 성명서. 방통위의 최근 정책이 거대 통신사들의 이익만을 대변하고 대다수 이용자의 보편적 권리를 침해한다는 강력한 규탄 및 정책 철회 촉구.",
-    isNew: true,
-    url: "#"
-  },
-  {
-    id: 'pr-2',
-    title: "디지털 미디어 혁신 및 경쟁력 강화 방안",
-    source: "방송통신위원회",
-    date: "2026-04-26",
-    summary: "글로벌 미디어 환경 변화에 대응하여 국내 방송미디어 산업의 자생력을 높이고 디지털 콘텐츠 경쟁력을 강화하기 위한 종합 대책. 3년 2개월 만의 지원 사이클 진입.",
-    isNew: false,
-    url: "#"
-  },
-  {
-    id: 'pr-3',
-    title: "2026년 국회 동향: 미디어 및 통신 관련 법안 주요 쟁점",
-    source: "국회도서관",
-    date: "2026-04-25",
-    summary: "정보통신망법 및 방송법 개정안을 둘러싼 여야의 주요 쟁점과 향후 입법 전망을 분석한 국회 입법조사처의 동향 보고서. 이용자 부담 최대 20% 경감을 위한 입법 방향.",
-    isNew: false,
-    url: "#"
-  },
-  {
-    id: 'pr-4',
-    title: "[MBC 단독] 소상공인 데이터 규제, 방송통신위원회 방침에 따른 영향 집중 분석",
-    source: "MBC",
-    date: "2026-04-26",
-    summary: "최근 방통위의 망 중립성 및 소상공인 데이터 규제 완화에 대해 MBC에서 집중 보도한 심층 취재 내용. 글로벌 테크 기업과 국내 통신망 사업자 간의 첨예한 갈등 조명.",
-    isNew: false,
-    url: "#"
-  }
-].sort((a, b) => {
-  if (a.isNew === b.isNew) {
-    return new Date(b.date).getTime() - new Date(a.date).getTime();
-  }
-  return a.isNew ? -1 : 1;
-});
-
-const MOCK_ARTICLES: Record<string, Article[]> = {
-  'pr-1': [
-    { id: 'a1', title: "방통위, 망 중립성 가이드라인 개정... 통신사-CP 갈등 풀리나", source: "MBC", date: "2026-04-27", url: "#" },
-    { id: 'a2', title: "언론노조 \"망 중립성 훼손은 이용자 주권 침해\" 거센 반발", source: "언론노조", date: "2026-04-27", url: "#" },
-    { id: 'a3', title: "[NSP] 글로벌 빅테크 '망 사용료' 부과 여부 초미의 관심사", source: "국회도서관", date: "2026-04-28", url: "#" },
-    { id: 'a4', title: "중소상공인연합 \"방통위 결정 환영... 타겟 마케팅 길 열려\"", source: "MBC", date: "2026-04-28", url: "#" },
-    { id: 'a5', title: "인터넷망 중립성 개정안, 골목상권 데이터 활용 길 터주나", source: "방송통신위원회", date: "2026-04-28", url: "#" },
-    { id: 'a6', title: "\"데이터 마케팅 허용해야\" vs \"과도한 사생활 침해 우려\"", source: "MBC", date: "2026-04-29", url: "#" },
-    { id: 'a7', title: "방통위, '위치정보법 예외 연장 논란' 관련 반박 브리핑", source: "언론노조", date: "2026-04-29", url: "#" },
-  ],
-  'pr-2': [],
-  'pr-3': [],
-  'pr-4': [
-    { id: 'b1', title: "방통위 규제 완화... 결국 통신요금 인상 빌미 되나", source: "언론노조", date: "2026-04-27", url: "#" },
-    { id: 'b2', title: "국회, 망 중립성 법안 재검토 착수", source: "국회도서관", date: "2026-04-28", url: "#" }
-  ],
-  'pr-5': [
-    { id: 'c1', title: "시민단체, 언론노조와 연대 투쟁 선언", source: "MBC", date: "2026-04-27", url: "#" },
-    { id: 'c2', title: "방통위, 노조 성명에 '사실과 다르다' 일축", source: "방송통신위원회", date: "2026-04-28", url: "#" }
-  ]
-};
 
 // --- Components ---
 
@@ -274,17 +197,45 @@ const AmbientButterflies = () => {
 export default function NewsDashboard() {
   const [step, setStep] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [reporterInfo, setReporterInfo] = useState({ media: '', name: '' });
-  const [selectedPR, setSelectedPR] = useState<PressRelease | null>(MOCK_PRS[0]); // Default selected for dev speed
-  const [selectedArticles, setSelectedArticles] = useState<Article[]>(MOCK_ARTICLES['pr-1']);
+  const [pressReleases, setPressReleases] = useState<PressRelease[]>([]);
+  const [isLoadingPRs, setIsLoadingPRs] = useState(true);
+  const [prsError, setPrsError] = useState<string | null>(null);
+  const [selectedPR, setSelectedPR] = useState<PressRelease | null>(null);
+  const [relatedArticles, setRelatedArticles] = useState<RelatedArticle[]>([]);
+  const [isLoadingRelated, setIsLoadingRelated] = useState(false);
+  const [selectedArticles, setSelectedArticles] = useState<RelatedArticle[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generated, setGenerated] = useState<GeneratedArticle | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
   const stepRefs = useRef<(HTMLSpanElement | null)[]>([]);
 
   useEffect(() => {
-    // Set initial last updated time
     const now = new Date();
     setLastUpdated(now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingPRs(true);
+    setPrsError(null);
+    fetchPressReleases()
+      .then((items) => {
+        if (cancelled) return;
+        setPressReleases(sortPressReleases(items));
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setPrsError(err instanceof Error ? err.message : '보도자료를 불러오지 못했습니다');
+        setPressReleases([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingPRs(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const triggerConfettiFromStep = (stepIndex: number) => {
@@ -334,24 +285,40 @@ export default function NewsDashboard() {
 
   const handleSelectPR = (pr: PressRelease) => {
     setSelectedPR(pr);
-    setSelectedArticles([]); // Reset related articles
+    setSelectedArticles([]);
+    setRelatedArticles([]);
+    setIsLoadingRelated(true);
+    fetchRelatedArticles(pr.id)
+      .then((items) => setRelatedArticles(items))
+      .catch(() => setRelatedArticles([]))
+      .finally(() => setIsLoadingRelated(false));
     goToStep(2);
   };
 
-  const toggleArticle = (article: Article) => {
-    setSelectedArticles(prev => 
-      prev.find(a => a.id === article.id) 
+  const toggleArticle = (article: RelatedArticle) => {
+    setSelectedArticles(prev =>
+      prev.find(a => a.id === article.id)
         ? prev.filter(a => a.id !== article.id)
         : [...prev, article]
     );
   };
 
   const handleGenerate = () => {
+    if (!selectedPR) return;
     setIsGenerating(true);
-    setTimeout(() => {
-      setIsGenerating(false);
-      setStep(4);
-    }, 2500); // Fake generation delay
+    setGenerateError(null);
+    generateArticle(
+      [selectedPR.id],
+      selectedArticles.map((a) => a.id),
+    )
+      .then((article) => {
+        setGenerated(article);
+        setStep(4);
+      })
+      .catch((err: unknown) => {
+        setGenerateError(err instanceof Error ? err.message : '기사 생성에 실패했습니다');
+      })
+      .finally(() => setIsGenerating(false));
   };
 
   return (
@@ -458,8 +425,23 @@ export default function NewsDashboard() {
               </div>
 
               <div className="space-y-2.5">
-                {MOCK_PRS.map((pr, idx) => (
-                  <motion.div 
+                {isLoadingPRs && (
+                  <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-white/40">
+                    보도자료 불러오는 중...
+                  </div>
+                )}
+                {!isLoadingPRs && prsError && (
+                  <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-red-400/80">
+                    {prsError}
+                  </div>
+                )}
+                {!isLoadingPRs && !prsError && pressReleases.length === 0 && (
+                  <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-white/40">
+                    보도자료가 없습니다
+                  </div>
+                )}
+                {!isLoadingPRs && pressReleases.map((pr, idx) => (
+                  <motion.div
                     key={pr.id}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -467,14 +449,13 @@ export default function NewsDashboard() {
                     onClick={() => handleSelectPR(pr)}
                     className="group relative bg-white/[0.015] border border-white/10 hover:bg-white/[0.04] hover:border-white/30 transition-all duration-300 p-3 sm:py-3 sm:px-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center cursor-pointer overflow-hidden rounded-[2px]"
                   >
-                    {/* Hover indicator line */}
                     <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-white/0 group-hover:bg-white/40 transition-colors duration-300" />
-                    
+
                     <div className="flex-1 space-y-1.5 w-full pl-1.5">
                       <div className="flex items-center gap-2.5">
                         {pr.isNew && (
-                          <motion.span 
-                            initial={{ opacity: 0 }} 
+                          <motion.span
+                            initial={{ opacity: 0 }}
                             animate={{ opacity: [0.7, 1, 0.7] }}
                             transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                             className="text-[9px] uppercase tracking-[0.2em] bg-red-600/80 border border-red-500/50 text-white px-1.5 py-0.5 font-bold rounded-[2px] relative overflow-hidden"
@@ -489,9 +470,21 @@ export default function NewsDashboard() {
                       <p className="text-[13px] font-sans font-normal text-white/60 max-w-4xl leading-relaxed line-clamp-2">{pr.summary}</p>
                     </div>
                     <div className="flex gap-2 sm:flex-col items-end sm:w-24 opacity-40 group-hover:opacity-100 transition-opacity justify-center h-full">
-                      <div className="text-[9px] uppercase tracking-[0.2em] font-sans text-ink flex items-center gap-1.5 transition-all hover:gap-2">
-                        원문 보기 <ExternalLink className="w-2.5 h-2.5" />
-                      </div>
+                      {pr.detail_url ? (
+                        <a
+                          href={pr.detail_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[9px] uppercase tracking-[0.2em] font-sans text-ink flex items-center gap-1.5 transition-all hover:gap-2"
+                        >
+                          원문 보기 <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      ) : (
+                        <span className="text-[9px] uppercase tracking-[0.2em] font-sans text-white/30 flex items-center gap-1.5">
+                          원문 없음
+                        </span>
+                      )}
                     </div>
                   </motion.div>
                 ))}
@@ -523,10 +516,20 @@ export default function NewsDashboard() {
               </div>
 
               <div className="space-y-2 pb-20">
-                {MOCK_ARTICLES[selectedPR.id]?.map((article, idx) => {
+                {isLoadingRelated && (
+                  <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-white/40">
+                    관련 기사 검색 중...
+                  </div>
+                )}
+                {!isLoadingRelated && relatedArticles.length === 0 && (
+                  <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-white/40">
+                    관련 기사가 없습니다
+                  </div>
+                )}
+                {!isLoadingRelated && relatedArticles.map((article, idx) => {
                   const isSelected = selectedArticles.some(a => a.id === article.id);
                   return (
-                    <motion.div 
+                    <motion.div
                       key={article.id}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -712,10 +715,11 @@ export default function NewsDashboard() {
                          기사 제목
                       </label>
                     )}
-                    <input 
-                      type="text" 
-                      defaultValue={`[단독] 방통위, 소상공인 데이터 규제 '숨통'... 2년 유예 연장 결정`}
+                    <input
+                      type="text"
+                      value={generated?.title ?? ''}
                       readOnly={!isEditing}
+                      onChange={(e) => setGenerated((g) => g ? { ...g, title: e.target.value } : g)}
                       className={`w-full bg-transparent text-xl sm:text-2xl font-sans font-bold tracking-tight text-white outline-none transition-all px-2 ${isEditing ? 'border-b border-white/30 hover:border-white focus:border-white focus:bg-white/[0.03] py-2 rounded-sm' : 'border-transparent py-1'}`}
                     />
                   </motion.div>
@@ -726,9 +730,10 @@ export default function NewsDashboard() {
                          리드 문단
                       </label>
                     )}
-                    <textarea 
-                      defaultValue={`방송통신위원회가 연 매출 10억 원 이하 영세 소상공인들을 위한 위치정보법 사전동의 예외 조치를 2년 더 연장하기로 확정했다. 이에 따라 동네 카페와 식당 등 골목상권의 데이터 기반 마케팅 플랫폼 이용이 지속적으로 가능해질 전망이다.`}
+                    <textarea
+                      value={generated?.lead ?? ''}
                       readOnly={!isEditing}
+                      onChange={(e) => setGenerated((g) => g ? { ...g, lead: e.target.value } : g)}
                       className={`w-full bg-transparent text-base sm:text-[17px] font-sans font-medium text-orange-400 leading-relaxed outline-none transition-all resize-none min-h-[90px] px-2 ${isEditing ? 'border-l-2 border-white/60 focus:bg-white/[0.03] py-2 rounded-sm' : 'border-transparent py-1'}`}
                     />
                   </motion.div>
@@ -736,26 +741,21 @@ export default function NewsDashboard() {
                   <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1,y:0}} transition={{delay:0.6}} className="space-y-1.5 group">
                     {isEditing && (
                       <label className="text-[9px] uppercase tracking-[0.2em] text-accent font-sans font-medium flex justify-between items-center px-2 mt-2">
-                        <span>본문 내용</span> 
+                        <span>본문 내용</span>
                       </label>
                     )}
-                    <div 
-                      className={`w-full text-[14px] sm:text-[15px] font-sans font-normal text-white/80 leading-[1.8] transition-all outline-none px-2 ${isEditing ? 'border border-white/20 focus-within:bg-white/[0.02] p-3 rounded-sm min-h-[300px]' : 'py-2 border-transparent'}`}
-                      contentEditable={isEditing}
-                      suppressContentEditableWarning
-                    >
-                      <p className="mb-5">
-                        <span className="font-bold text-white">[{reporterInfo.media}={reporterInfo.name} 기자]</span> 방송통신위원회는 전체회의를 열고 소상공인 점포 정보 전송 서비스에 대한 규제 유예를 최장 2028년까지 연장하는 안을 의결했다고 27일 밝혔다. 이는 당초 올해 만료 예정이었던 규제 샌드박스 실증 특례를 확대한 조치다.
-                      </p>
-                      
-                      <p className="mb-5">
-                        현행 위치정보법상 개인의 위치정보를 수집 및 활용하기 위해서는 본인의 명시적인 사전동의가 필수적이다. 하지만 영세한 소상공인 입장에서는 복잡한 동의 절차 시스템을 구축하기 어려워, 사실상 타겟 데이터 마케팅에서 소외되어 왔다는 지적이 제기되어 왔다. 
-                      </p>
-
-                      <p>
-                        지역 소상공인들은 즉각 환영의 뜻을 표명했다. 상인회 관계자는 "이번 연장 조치로 반경 내 잠재 고객들에게 타임세일 알림을 보내는 등의 혁신적 마케팅 시도가 계속될 수 있게 됐다"며 긍정적으로 평가했다.
-                      </p>
-                    </div>
+                    {isEditing ? (
+                      <textarea
+                        value={generated?.body ?? ''}
+                        onChange={(e) => setGenerated((g) => g ? { ...g, body: e.target.value } : g)}
+                        className="w-full bg-transparent text-[14px] sm:text-[15px] font-sans font-normal text-white/80 leading-[1.8] outline-none transition-all border border-white/20 focus:bg-white/[0.02] p-3 rounded-sm min-h-[300px] resize-y"
+                      />
+                    ) : (
+                      <BodyWithCitations
+                        body={generated?.body ?? ''}
+                        citations={generated?.citations ?? {}}
+                      />
+                    )}
                   </motion.div>
                 </div>
 
@@ -767,7 +767,13 @@ export default function NewsDashboard() {
                     </h4>
                     <div className="space-y-3">
                       {selectedArticles.map((article) => (
-                        <a key={article.id} href={article.url} className="block group/link">
+                        <a
+                          key={article.id}
+                          href={article.detail_url || '#'}
+                          target={article.detail_url ? '_blank' : undefined}
+                          rel={article.detail_url ? 'noreferrer' : undefined}
+                          className="block group/link"
+                        >
                            <div className="flex items-center gap-3">
                              <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover/link:bg-white/60 transition-colors" />
                              <span className="text-[13px] sm:text-[14px] text-white/70 group-hover/link:text-white transition-colors tracking-tight">
