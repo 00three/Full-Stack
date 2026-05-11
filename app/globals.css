@@ -1,0 +1,13 @@
+@import "tailwindcss" source(none);
+
+@source ".";
+@source "../lib";
+@source "../hooks";
+
+@theme {
+  --color-bg: #050505;
+  --color-ink: #ffffff;
+  --color-accent: #8e8e8e;
+  --font-sans: var(--font-sans), 'Helvetica Neue', Arial, sans-serif;
+  --font-serif: var(--font-serif), 'Georgia', serif;
+}

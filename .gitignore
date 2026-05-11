@@ -1,7 +1,21 @@
+# Python (backend, rag)
 .venv/
 __pycache__/
 *.pyc
 .env
+.env*
+!.env.example
 
 # RAG ingest 입력 데이터 (크롤러 산출물, 별도 레포에서 관리)
 rag/data/*.jsonl
+
+# Node.js / Next.js (frontend)
+node_modules/
+.next/
+coverage/
+*.log
+.eslintrc.json
+tsconfig.tsbuildinfo
+
+# OS
+.DS_Store
