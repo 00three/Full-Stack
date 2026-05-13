@@ -513,7 +513,7 @@ export default function NewsDashboard() {
               className="space-y-4"
             >
               <div className="border-l-[3px] border-white/20 pl-3 py-1.5 bg-white/[0.02] p-2 rounded-r-md">
-                <p className="text-[9px] font-sans uppercase tracking-[0.2em] text-accent mb-2 flex items-center gap-2">타겟 소스 (보도자료) <SourceLogo source={selectedPR.source} /></p>
+                <div className="text-[9px] font-sans uppercase tracking-[0.2em] text-accent mb-2 flex items-center gap-2">타겟 소스 (보도자료) <SourceLogo source={selectedPR.source} /></div>
                 <h3 className="text-base sm:text-lg font-sans font-bold text-ink tracking-tight leading-snug">{selectedPR.title}</h3>
               </div>
 
