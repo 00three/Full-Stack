@@ -40,9 +40,9 @@ def _call_llm(system_prompt: str, user_prompt: str) -> str:
 # 1차: JSON 구조화 추출
 # ──────────────────────────────────────────────
 
-EXTRACT_SYSTEM = """너는 보도자료에서 핵심 팩트를 추출하는 전문가다.
-주어진 텍스트에서 정보를 추출하여 반드시 JSON 형식으로만 출력하라.
-추측하지 말고, 텍스트에 없는 정보는 null로 표시하라."""
+EXTRACT_SYSTEM = """You are an expert at extracting key facts from Korean press releases.
+Extract information from the given text and output ONLY in valid JSON format.
+Do not speculate. Mark missing information as null."""
 
 EXTRACT_SCHEMA = """{
   "who": "기관/단체명",
@@ -62,12 +62,12 @@ def extract_json(chunks: list[dict]) -> dict:
         for c in chunks
     )
 
-    user_prompt = f"""다음 텍스트에서 정보를 추출하여 JSON으로 출력하라.
+    user_prompt = f"""Extract information from the text below and output as JSON.
 
-스키마:
+Schema:
 {EXTRACT_SCHEMA}
 
-텍스트:
+Text:
 {texts}"""
 
     result = _call_llm(EXTRACT_SYSTEM, user_prompt)
@@ -85,7 +85,7 @@ def extract_json(chunks: list[dict]) -> dict:
             if attempt < 2:
                 result = _call_llm(
                     EXTRACT_SYSTEM,
-                    user_prompt + "\n\n이전 응답이 JSON 파싱에 실패했다. 반드시 유효한 JSON만 출력하라.",
+                    user_prompt + "\n\nThe previous response failed JSON parsing. Output ONLY valid JSON.",
                 )
 
     raise RuntimeError("JSON 파싱 3회 실패")
@@ -95,24 +95,40 @@ def extract_json(chunks: list[dict]) -> dict:
 # 2차: 기사 생성
 # ──────────────────────────────────────────────
 
-ARTICLE_SYSTEM = """너는 속보기사를 작성하는 전문 기자다.
+ARTICLE_SYSTEM = """You are a professional Korean news reporter writing breaking news articles in 한국어.
 
-작성 방식:
-- 추출된 JSON의 핵심 사실을 중심에 두되, 참고 출처의 본문에서
-  배경·맥락·구체적 수치를 가져와 풍부하게 보강한다
-- 분량: 본문 600~900자, 3~5문단
+WRITING APPROACH:
+- Center the article on the core facts from the extracted JSON
+- Enrich with background, context, and concrete details from the reference sources
+- Length: 600-900 Korean characters in body, 3-5 paragraphs
 
-문단 구조:
-- 1문단(리드): 핵심 결정 요약 (5W1H)
-- 2~3문단: 구체적 수치, 세부 내용, 배경
-- 마지막 문단: 의의·영향·향후 전망
+PARAGRAPH STRUCTURE:
+- Paragraph 1 (lead): Compress 5W1H into 1-2 sentences (around 80 chars each)
+- Paragraphs 2-3: Specific numbers, details, background. Each paragraph should cite at least one reference with [n] marker when possible
+- Final paragraph: Significance or impact, written as established facts (no speculation)
 
-규칙:
-- 추측성 표현(~것으로 보인다, ~할 수 있다)은 금지
-- 참고 출처 본문에 있는 사실을 인용할 때 [1], [2] 마커를 문장 끝에 표시
-- JSON과 참고 출처에 없는 내용은 추가 금지
+SOURCE ROLES (critical):
+- Main press release = source of CORE FACTS (decisions, policies, figures, dates)
+- Reference articles = source of BACKGROUND, CONTEXT, and connections to related events
+- When citing facts from reference articles, append [n] markers at the END of the sentence
+- The main press release's conclusion must remain the central axis of the article
+- Do NOT let reference articles overwhelm or replace the main message
 
-출력 형식:
+KOREAN NEWS STYLE (strict):
+- Short sentences (around 80 Korean characters each)
+- Use ONLY declarative endings. NO speculation, prediction, expectation, or hope expressions.
+  Forbidden patterns include but are not limited to:
+    ~것으로 보인다, ~할 수 있다, ~될 전망이다, ~예상된다,
+    ~기여할 것이다, ~기대된다, ~예측된다, ~할 것으로 분석된다
+- Prioritize numbers, proper nouns, and dates in placement
+- Minimize adjectives and adverbs; stick to objective facts
+- Use a single-line noun-phrase headline with a key action verb (no parentheses, no subtitle)
+
+ABSOLUTE RULES:
+- NEVER add content not present in the JSON or reference sources
+- All factual claims must be traceable to the provided inputs
+
+OUTPUT FORMAT (write the content in Korean, keep these Korean labels exactly):
 제목: ...
 리드: ...
 본문: ..."""
@@ -122,16 +138,16 @@ def generate_article(extracted_json: dict, chunks: list[dict]) -> dict:
     """JSON + 참고 chunk로 속보기사 생성 (2차 LLM)"""
     chunk_refs = "\n\n".join(
         f"[{i+1}] [{c.get('source', '')} | {c.get('date', '')}] {c.get('title', '')}\n"
-        f"본문: {c.get('original_text', '')}"
+        f"Body: {c.get('original_text', '')}"
         for i, c in enumerate(chunks)
     )
 
-    user_prompt = f"""다음 JSON 정보를 기반으로 속보기사를 작성하라.
+    user_prompt = f"""Write a Korean breaking news article based on the JSON below.
 
-추출된 정보:
+Extracted JSON:
 {json.dumps(extracted_json, ensure_ascii=False, indent=2)}
 
-참고 출처:
+Reference sources:
 {chunk_refs}"""
 
     result = _call_llm(ARTICLE_SYSTEM, user_prompt)
@@ -162,30 +178,30 @@ def generate_article(extracted_json: dict, chunks: list[dict]) -> dict:
 # 3차: 사실검증
 # ──────────────────────────────────────────────
 
-VERIFY_SYSTEM = """너는 팩트체크 전문가다.
-1차에서 추출한 JSON과 2차에서 생성한 기사를 비교하여 불일치를 찾아라.
+VERIFY_SYSTEM = """You are a fact-checking expert.
+Compare the JSON extracted in step 1 against the article generated in step 2, and identify mismatches.
 
-검증 항목:
-- 기관명이 정확한가
-- 수치(금액, 인원, 날짜)가 일치하는가
-- JSON에 없는 내용이 기사에 추가되었는가
+CHECK ITEMS:
+- Are institution names accurate?
+- Do numerical values (amounts, counts, dates) match?
+- Has any content been added to the article that is NOT in the JSON?
 
-출력 형식 (JSON):
+OUTPUT FORMAT (JSON):
 {
   "passed": true/false,
-  "issues": ["불일치 내용 1", "불일치 내용 2"]
+  "issues": ["mismatch description 1", "mismatch description 2"]
 }"""
 
 
 def verify_article(extracted_json: dict, article: dict) -> dict:
     """생성된 기사를 1차 JSON과 비교하여 사실검증 (3차 LLM)"""
-    user_prompt = f"""1차 추출 JSON:
+    user_prompt = f"""Step 1 extracted JSON:
 {json.dumps(extracted_json, ensure_ascii=False, indent=2)}
 
-생성된 기사:
-제목: {article['title']}
-리드: {article['lead']}
-본문: {article['body']}"""
+Generated article:
+Title: {article['title']}
+Lead: {article['lead']}
+Body: {article['body']}"""
 
     result = _call_llm(VERIFY_SYSTEM, user_prompt)
 

@@ -34,8 +34,14 @@ def make_full_text(
     """
     검색 임베딩·tsvector 대상이 되는 텍스트.
     context_prefix가 빈 문자열이면 (4단계 skip 시) 자동으로 제외됨.
+
+    meta_prefix(source|date|title 헤더)는 임베딩에서 의도적으로 제외한다.
+    BGE-M3가 source 토큰(KCC/NSP/MBC/NODONG)을 강하게 학습하면서
+    같은 출처 청크끼리 cosine 유사도가 압도적으로 높아져 cross-source
+    검색이 막히는 부작용이 있었음. source·date·title은 별도 컬럼에
+    그대로 저장되므로 메타 필터링·표시에는 영향 없음.
     """
-    parts = [p for p in (context_prefix, meta_prefix, original_text) if p]
+    parts = [p for p in (context_prefix, original_text) if p]
     return "\n".join(parts)
 
 
