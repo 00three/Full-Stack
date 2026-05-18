@@ -59,6 +59,8 @@ def get_related_articles_batch(
             query_text=query,
             source_release_id=pr["id"],
             source_release_title=pr.get("title", ""),
+            source_release_source=pr.get("source", ""),
+            source_release_date=pr.get("date", ""),
         )
         # 같은 chunk_id 중복 제거 + 본인 보도자료 chunk 제외
         for c in chunks:
@@ -100,6 +102,8 @@ def get_related_articles(
         query_text=query,
         source_release_id=pr["id"],
         source_release_title=pr.get("title", ""),
+        source_release_source=pr.get("source", ""),
+        source_release_date=pr.get("date", ""),
     )
     json_data = gen.extract_only(pr)
     return {"related": related, "json": json_data}

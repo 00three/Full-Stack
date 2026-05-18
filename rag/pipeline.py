@@ -49,8 +49,8 @@ def run(
     # 4. 2차 LLM: 기사 생성
     article = generate_article(extracted_json, selected_chunks)
 
-    # 5. 3차 LLM: 사실검증
-    verification = verify_article(extracted_json, article)
+    # 5. 3차 LLM: 사실검증 (chunks까지 같이 비교해서 환각 탐지)
+    verification = verify_article(extracted_json, article, selected_chunks)
 
     return {
         "search_results": search_results,

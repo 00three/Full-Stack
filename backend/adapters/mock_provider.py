@@ -23,8 +23,9 @@ class MockPressReleaseProvider:
 
 
 class MockRAGService:
-    def search_related(self, query_text, source_release_id=None, source_release_title=None):
+    def search_related(self, query_text, source_release_id=None, source_release_title=None, **kwargs):
         # 간단한 fallback: source_release_id로 mock 데이터 매핑
+        # **kwargs: DB 구현체가 받는 source_release_source/date 등 추가 인자 흡수
         return MOCK_RELATED.get(source_release_id or "", [])
 
     def get_chunk_content(self, chunk_id):

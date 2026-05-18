@@ -580,12 +580,11 @@ export default function NewsDashboard() {
                    <div className="text-[10px] font-sans text-accent tracking-widest hidden sm:block">
                      {selectedArticles.length}개의 기사 선택됨
                    </div>
-                  <button 
+                  <button
                     onClick={() => goToStep(3)}
-                    disabled={selectedArticles.length === 0}
-                    className="px-6 py-3 bg-white text-black text-[10px] font-sans uppercase tracking-[0.2em] font-bold hover:shadow-[0_0_15px_rgba(255,255,255,0.4)] transition-all duration-300 disabled:opacity-30 disabled:hover:shadow-none disabled:cursor-not-allowed flex items-center gap-2 group rounded-sm"
+                    className="px-6 py-3 bg-white text-black text-[10px] font-sans uppercase tracking-[0.2em] font-bold hover:shadow-[0_0_15px_rgba(255,255,255,0.4)] transition-all duration-300 flex items-center gap-2 group rounded-sm"
                   >
-                    생성 설정 단계로 <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                    {selectedArticles.length === 0 ? '관련 기사 없이 바로 생성' : '생성 설정 단계로'} <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
                   </button>
                 </div>
               </motion.div>

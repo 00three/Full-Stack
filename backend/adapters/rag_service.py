@@ -25,11 +25,14 @@ class DBRAGService:
         query_text: str,
         source_release_id: str | None = None,
         source_release_title: str | None = None,
+        source_release_source: str | None = None,
+        source_release_date: str | None = None,
         max_results: int = 10,
     ) -> list[dict]:
         """
         query_text로 관련 chunk 검색 → 같은 (source, title, date) 보도자료당
         가장 높은 점수의 chunk 1개만 남겨서 frontend 포맷으로 반환.
+        메인 보도자료 자기 자신은 결과에서 제외 (self-retrieval 방지).
         detail_url(원문 링크)도 함께 반환.
         """
         if not query_text or not query_text.strip():
@@ -38,6 +41,12 @@ class DBRAGService:
         emb = encode_query(query_text)
         results = hybrid_search(query_text, emb)
 
+        # 메인 보도자료 식별용 키 (source_release_*가 들어왔을 때만 필터링)
+        main_title = (source_release_title or "").strip()
+        main_source = (source_release_source or "").strip()
+        main_date = (source_release_date or "").strip()
+        has_main_filter = bool(main_title)  # title만 있어도 필터 동작
+
         # 같은 원본 article(=source+title+date)당 가장 점수 높은 chunk 1개만
         seen: set[tuple] = set()
         out: list[dict] = []
@@ -45,7 +54,17 @@ class DBRAGService:
         for r in results:
             d = r.get("date")
             date_str = d.isoformat() if hasattr(d, "isoformat") else (d or "")
-            key = (r.get("source") or "", r.get("title") or "", date_str)
+            r_title = (r.get("title") or "").strip()
+            r_source = (r.get("source") or "").strip()
+
+            # ── self-retrieval 제외: 메인 보도자료와 일치하면 스킵
+            if has_main_filter and r_title == main_title:
+                # title이 같으면 일단 후보, source/date까지 들어왔으면 정확히 매칭
+                if not main_source or r_source == main_source:
+                    if not main_date or date_str == main_date:
+                        continue
+
+            key = (r_source, r_title, date_str)
             if key in seen:
                 continue
             seen.add(key)

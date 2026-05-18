@@ -23,10 +23,29 @@ class DBConfig:
 
 @dataclass
 class LLMConfig:
-    api_key: str = os.getenv("OPENAI_API_KEY", "")
-    model: str = "gpt-4o-mini"
+    # provider: "openai" | "anthropic" (기본 openai로 backward-compat)
+    provider: str = os.getenv("LLM_PROVIDER", "openai")
+
+    # OpenAI
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    # Anthropic
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
+    # 공통
     max_tokens: int = 2000
     temperature: float = 0.3
+
+    # ─ backward-compat shim (기존 코드가 llm_config.api_key / .model 참조했던 케이스 대비)
+    @property
+    def api_key(self) -> str:
+        return self.anthropic_api_key if self.provider == "anthropic" else self.openai_api_key
+
+    @property
+    def model(self) -> str:
+        return self.anthropic_model if self.provider == "anthropic" else self.openai_model
 
 
 @dataclass
