@@ -46,6 +46,7 @@ class DBPressReleaseProvider:
                     summary,
                     content_text,
                     detail_url,
+                    image_urls,
                     crawled_at
                 FROM raw_documents
                 {where}
@@ -66,6 +67,9 @@ class DBPressReleaseProvider:
             is_new = bool(d and d >= threshold)
             # summary 없으면 본문 앞 80자로 대체
             summary = r["summary"] or (r["content_text"] or "")[:80]
+            # image_urls는 JSONB. psycopg2가 list로 디코딩.
+            imgs = r.get("image_urls") or []
+            thumbnail = imgs[0] if isinstance(imgs, list) and imgs else None
             out.append({
                 "id": r["doc_id"],
                 "title": r["title"],
@@ -73,6 +77,8 @@ class DBPressReleaseProvider:
                 "date": d.isoformat() if d else None,
                 "summary": summary,
                 "detail_url": r["detail_url"],
+                "thumbnail_url": thumbnail,
+                "image_urls": imgs if isinstance(imgs, list) else [],
                 "is_new": is_new,
             })
         return out
@@ -80,7 +86,7 @@ class DBPressReleaseProvider:
     def get_release_by_id(self, doc_id: str) -> dict | None:
         """단건 조회 (상세보기·기사생성 시 content_text 필요)."""
         sql = """
-            SELECT doc_id, source, title, date, summary, content_text, detail_url
+            SELECT doc_id, source, title, date, summary, content_text, detail_url, image_urls
             FROM raw_documents
             WHERE doc_id = %s
         """
@@ -90,6 +96,9 @@ class DBPressReleaseProvider:
                 row = cur.fetchone()
         if not row:
             return None
+        imgs = row.get("image_urls") or []
+        if not isinstance(imgs, list):
+            imgs = []
         return {
             "id": row["doc_id"],
             "title": row["title"],
@@ -98,4 +107,6 @@ class DBPressReleaseProvider:
             "summary": row["summary"],
             "content_text": row["content_text"] or "",
             "detail_url": row["detail_url"],
+            "thumbnail_url": imgs[0] if imgs else None,
+            "image_urls": imgs,
         }

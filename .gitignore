@@ -19,3 +19,7 @@ tsconfig.tsbuildinfo
 
 # OS
 .DS_Store
+
+# 개인 자료 (보고서/스크린샷 등)
+*.docx
+image.png

@@ -9,6 +9,8 @@ export interface PressRelease {
   summary: string;
   detail_url: string;
   isNew: boolean;
+  thumbnailUrl?: string;
+  imageUrls?: string[];
 }
 
 export interface RelatedArticle {
@@ -43,6 +45,8 @@ interface PressReleaseRaw {
   summary?: string;
   detail_url?: string;
   is_new?: boolean;
+  thumbnail_url?: string | null;
+  image_urls?: string[];
 }
 
 function normalizePressRelease(raw: PressReleaseRaw): PressRelease {
@@ -54,6 +58,8 @@ function normalizePressRelease(raw: PressReleaseRaw): PressRelease {
     summary: raw.summary ?? '',
     detail_url: raw.detail_url ?? '',
     isNew: !!raw.is_new,
+    thumbnailUrl: raw.thumbnail_url ?? undefined,
+    imageUrls: Array.isArray(raw.image_urls) ? raw.image_urls : undefined,
   };
 }
 

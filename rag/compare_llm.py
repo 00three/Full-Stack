@@ -37,6 +37,7 @@ def _run_one(
     provider: str,
     model: str,
     ref_body_max_chars: int | None = 300,
+    style: str = "default",
 ) -> dict:
     """선택된 chunk로 1→2→3차 LLM 순차 실행. 각 단계 소요시간 포함."""
     t0 = time.time()
@@ -50,6 +51,7 @@ def _run_one(
         provider=provider,
         model=model,
         ref_body_max_chars=ref_body_max_chars,
+        style=style,
     )
     t_generate = time.time() - t1
 
@@ -62,6 +64,7 @@ def _run_one(
     return {
         "provider": provider,
         "model": model,
+        "style": style,
         "extracted_json": extracted,
         "article": article,
         "verification": verification,
@@ -81,8 +84,8 @@ def _format_md(query: str, chunks: list[dict], left: dict, right: dict) -> str:
 
     w(f"# LLM 비교 — `{query}`\n\n")
     w(f"- 참고기사 (검색 결과): {len(chunks)}건 (양측 동일 입력)\n")
-    w(f"- 좌: **{left['provider']} / {left['model']}** — {left['timing']['total']}s\n")
-    w(f"- 우: **{right['provider']} / {right['model']}** — {right['timing']['total']}s\n\n")
+    w(f"- 좌: **{left['provider']} / {left['model']} / style={left.get('style','default')}** — {left['timing']['total']}s\n")
+    w(f"- 우: **{right['provider']} / {right['model']} / style={right.get('style','default')}** — {right['timing']['total']}s\n\n")
 
     # 검색결과 요약
     w("## 검색된 참고기사\n\n")
@@ -105,12 +108,14 @@ def _format_md(query: str, chunks: list[dict], left: dict, right: dict) -> str:
 
     # 2차 기사
     w("## 2차 기사 생성\n\n")
-    w(f"### {left['provider']} / {left['model']}\n\n")
+    w(f"### {left['provider']} / {left['model']} / style={left.get('style','default')}\n\n")
+    w(f"**장르 (모델 자체 판단)**: {left['article'].get('genre') or '—'}\n\n")
     w(f"**제목**: {left['article']['title']}\n\n")
     w(f"**리드**: {left['article']['lead']}\n\n")
     w(f"**본문**:\n\n{left['article']['body']}\n\n")
     w("---\n\n")
-    w(f"### {right['provider']} / {right['model']}\n\n")
+    w(f"### {right['provider']} / {right['model']} / style={right.get('style','default')}\n\n")
+    w(f"**장르 (모델 자체 판단)**: {right['article'].get('genre') or '—'}\n\n")
     w(f"**제목**: {right['article']['title']}\n\n")
     w(f"**리드**: {right['article']['lead']}\n\n")
     w(f"**본문**:\n\n{right['article']['body']}\n\n")
@@ -156,7 +161,8 @@ def _format_terminal(query: str, left: dict, right: dict) -> str:
     w(f"{'=' * 80}\n\n")
 
     for side in (left, right):
-        w(f"━━ {side['provider']} / {side['model']}  ({side['timing']['total']}s)\n")
+        w(f"━━ {side['provider']} / {side['model']} / style={side.get('style','default')}  ({side['timing']['total']}s)\n")
+        w(f"장르(모델 판단): {side['article'].get('genre') or '—'}\n")
         w(f"제목: {side['article']['title']}\n")
         w(f"리드: {side['article']['lead']}\n")
         w(f"본문:\n{side['article']['body']}\n")
@@ -180,6 +186,18 @@ def main() -> int:
         default=300,
         help="참고기사 본문을 프롬프트에 넣을 때 자르는 길이 (0 또는 음수면 자르지 않음)",
     )
+    parser.add_argument(
+        "--style",
+        choices=["default", "mediaus"],
+        default="default",
+        help="기사 스타일. default=일반 뉴스, mediaus=송창한·고성욱 톤",
+    )
+    parser.add_argument(
+        "--style-compare",
+        action="store_true",
+        help="좌(default) vs 우(mediaus) 비교 모드. Anthropic 모델 양쪽 사용. "
+             "OpenAI vs Anthropic 비교 대신 같은 모델로 두 스타일 비교.",
+    )
     parser.add_argument("--out", default=None, help="마크다운 결과 저장 경로 (선택)")
     args = parser.parse_args()
 
@@ -191,17 +209,36 @@ def main() -> int:
     chunks = results[: args.top_k]
     print(f"      → {len(chunks)}건 사용", file=sys.stderr)
 
-    print(f"[2/4] OpenAI ({args.openai_model}) 실행 중 (ref_cap={ref_cap})...", file=sys.stderr)
-    left = _run_one(
-        chunks, provider="openai", model=args.openai_model, ref_body_max_chars=ref_cap
-    )
-    print(f"      → {left['timing']['total']}s", file=sys.stderr)
+    if args.style_compare:
+        # 스타일 비교 모드: Anthropic 양쪽, 좌=default 우=mediaus
+        print(f"[2/4] Anthropic default style 실행 중 (ref_cap={ref_cap})...", file=sys.stderr)
+        left = _run_one(
+            chunks, provider="anthropic", model=args.anthropic_model,
+            ref_body_max_chars=ref_cap, style="default",
+        )
+        print(f"      → {left['timing']['total']}s", file=sys.stderr)
 
-    print(f"[3/4] Anthropic ({args.anthropic_model}) 실행 중 (ref_cap={ref_cap})...", file=sys.stderr)
-    right = _run_one(
-        chunks, provider="anthropic", model=args.anthropic_model, ref_body_max_chars=ref_cap
-    )
-    print(f"      → {right['timing']['total']}s", file=sys.stderr)
+        print(f"[3/4] Anthropic mediaus style 실행 중 (ref_cap={ref_cap})...", file=sys.stderr)
+        right = _run_one(
+            chunks, provider="anthropic", model=args.anthropic_model,
+            ref_body_max_chars=ref_cap, style="mediaus",
+        )
+        print(f"      → {right['timing']['total']}s", file=sys.stderr)
+    else:
+        # 일반 모드: OpenAI vs Anthropic, 같은 style 적용
+        print(f"[2/4] OpenAI ({args.openai_model}) 실행 중 (ref_cap={ref_cap}, style={args.style})...", file=sys.stderr)
+        left = _run_one(
+            chunks, provider="openai", model=args.openai_model,
+            ref_body_max_chars=ref_cap, style=args.style,
+        )
+        print(f"      → {left['timing']['total']}s", file=sys.stderr)
+
+        print(f"[3/4] Anthropic ({args.anthropic_model}) 실행 중 (ref_cap={ref_cap}, style={args.style})...", file=sys.stderr)
+        right = _run_one(
+            chunks, provider="anthropic", model=args.anthropic_model,
+            ref_body_max_chars=ref_cap, style=args.style,
+        )
+        print(f"      → {right['timing']['total']}s", file=sys.stderr)
 
     print("[4/4] 결과 출력\n", file=sys.stderr)
     print(_format_terminal(args.query, left, right))

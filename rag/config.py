@@ -38,6 +38,9 @@ class LLMConfig:
     max_tokens: int = 2000
     temperature: float = 0.3
 
+    # 기사 스타일: "default" (일반 뉴스) | "mediaus" (송창한·고성욱 톤)
+    article_style: str = os.getenv("ARTICLE_STYLE", "default")
+
     # ─ backward-compat shim (기존 코드가 llm_config.api_key / .model 참조했던 케이스 대비)
     @property
     def api_key(self) -> str:

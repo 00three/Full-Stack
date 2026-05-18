@@ -461,6 +461,21 @@ export default function NewsDashboard() {
                   >
                     <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-white/0 group-hover:bg-white/40 transition-colors duration-300" />
 
+                    {pr.thumbnailUrl && (
+                      <div className="shrink-0 w-full sm:w-20 h-32 sm:h-20 overflow-hidden rounded-[2px] bg-white/[0.03] border border-white/10">
+                        <img
+                          src={pr.thumbnailUrl}
+                          alt=""
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
+                          }}
+                          className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                        />
+                      </div>
+                    )}
+
                     <div className="flex-1 space-y-1.5 w-full pl-1.5">
                       <div className="flex items-center gap-2.5">
                         {pr.isNew && (
