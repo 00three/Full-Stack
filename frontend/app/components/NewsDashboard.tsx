@@ -4,15 +4,17 @@ import confetti from 'canvas-confetti';
 import {
   Search, RefreshCcw, ExternalLink,
   ChevronRight, ArrowRight, Download, FileText,
-  Info
+  Info, CheckCircle2, X
 } from 'lucide-react';
 import {
   fetchPressReleases,
   fetchRelatedArticles,
-  generateArticle,
+  fetchLLMModels,
+  generateArticleStream,
   type PressRelease,
   type RelatedArticle,
   type GeneratedArticle,
+  type LLMModelOption,
 } from '@/lib/api';
 import { BodyWithCitations } from './BodyWithCitations';
 
@@ -69,6 +71,41 @@ const SourceLogo = ({ source }: { source: string }) => {
       src: '/logos/언론노조.png?v=20260428-union-white',
       className: 'h-5 sm:h-6 max-w-[145px] sm:max-w-[165px] w-auto object-contain drop-shadow-[0_0_3px_rgba(255,255,255,0.25)]',
       fallback: 'bg-[#b91c1c] text-white px-1.5 py-0.5 font-bold tracking-widest text-[9px] rounded-sm flex items-center gap-1 shadow-sm'
+    },
+    '국민일보': {
+      src: '/logos/kukminilbo.png',
+      className: 'h-4 sm:h-5 max-w-[96px] sm:max-w-[112px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-white text-black px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
+    },
+    '중앙일보': {
+      src: '/logos/joongangilbo.png',
+      className: 'h-4 sm:h-5 max-w-[96px] sm:max-w-[112px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-white text-black px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
+    },
+    '연합뉴스': {
+      src: '/logos/yonhapnews.jpg',
+      className: 'h-4 sm:h-5 max-w-[112px] sm:max-w-[130px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-white text-black px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
+    },
+    '뉴스1': {
+      src: '/logos/news1.png',
+      className: 'h-4 sm:h-5 max-w-[84px] sm:max-w-[96px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-white text-black px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
+    },
+    '파이낸셜뉴스': {
+      src: '/logos/financialnews.png',
+      className: 'h-4 sm:h-5 max-w-[118px] sm:max-w-[136px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-[#0b74b7] text-white px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
+    },
+    '뉴시스': {
+      src: '/logos/newsis.jpg',
+      className: 'h-4 sm:h-5 max-w-[104px] sm:max-w-[120px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-white text-[#d90429] px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
+    },
+    '매일경제': {
+      src: '/logos/maeilbiz.png',
+      className: 'h-4 sm:h-5 max-w-[112px] sm:max-w-[132px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-white text-black px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
     }
   };
 
@@ -109,10 +146,12 @@ const Butterfly = ({ className }: { className?: string }) => (
   </svg>
 );
 
-const AmbientButterflies = () => {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+const seededRandom = (seed: number) => {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+};
 
+const AmbientButterflies = () => {
   const butterflies = useMemo(() => Array.from({ length: 14 }).map((_, i) => {
     const zones = ['left', 'right', 'top', 'bottom'];
     const zone = zones[i % 4];
@@ -120,24 +159,26 @@ const AmbientButterflies = () => {
     const xPoints: number[] = [];
     const yPoints: number[] = [];
     const rPoints: number[] = [];
-    let currentR = Math.random() * 360;
+    let randomStep = i * 23 + 1;
+    const nextRandom = () => seededRandom(randomStep++);
+    let currentR = nextRandom() * 360;
 
     for(let j=0; j<6; j++) {
       if (zone === 'left') {
-        xPoints.push(Math.random() * 25 - 5); // -5 to 20vw
-        yPoints.push(Math.random() * 110 - 5);
+        xPoints.push(nextRandom() * 25 - 5); // -5 to 20vw
+        yPoints.push(nextRandom() * 110 - 5);
       } else if (zone === 'right') {
-        xPoints.push(75 + Math.random() * 30); // 75 to 105vw
-        yPoints.push(Math.random() * 110 - 5);
+        xPoints.push(75 + nextRandom() * 30); // 75 to 105vw
+        yPoints.push(nextRandom() * 110 - 5);
       } else if (zone === 'top') {
-        xPoints.push(Math.random() * 110 - 5);
-        yPoints.push(Math.random() * 20 - 5); // -5 to 15vh
+        xPoints.push(nextRandom() * 110 - 5);
+        yPoints.push(nextRandom() * 20 - 5); // -5 to 15vh
       } else { // bottom
-        xPoints.push(Math.random() * 110 - 5);
-        yPoints.push(85 + Math.random() * 20); // 85 to 105vh
+        xPoints.push(nextRandom() * 110 - 5);
+        yPoints.push(85 + nextRandom() * 20); // 85 to 105vh
       }
       rPoints.push(currentR);
-      currentR += (Math.random() * 180 - 90); // Drift rotation slowly
+      currentR += (nextRandom() * 180 - 90); // Drift rotation slowly
     }
     
     // Link back to start for smooth endless loop
@@ -145,7 +186,7 @@ const AmbientButterflies = () => {
     yPoints.push(yPoints[0]);
     rPoints.push(currentR);
 
-    const duration = Math.random() * 100 + 80; // 80-180s very slow, random path
+    const duration = nextRandom() * 100 + 80; // 80-180s very slow, random path
     
     return {
       id: i,
@@ -153,13 +194,13 @@ const AmbientButterflies = () => {
       yPoints,
       rPoints,
       duration,
-      delay: -(Math.random() * duration), // Start scattered along the path
-      scale: Math.random() * 0.4 + 0.3,
-      flutterDuration: Math.random() * 0.5 + 0.4, // Slow, graceful flap
+      delay: -(nextRandom() * duration), // Start scattered along the path
+      scale: nextRandom() * 0.4 + 0.3,
+      flutterDuration: nextRandom() * 0.5 + 0.4, // Slow, graceful flap
+      bobDuration: nextRandom() * 6 + 6,
+      waverDuration: nextRandom() * 5 + 5,
     };
   }), []);
-
-  if (!mounted) return null;
 
   return (
     <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden mix-blend-screen opacity-40">
@@ -192,8 +233,8 @@ const AmbientButterflies = () => {
             }}
             transition={{ 
               scaleX: { duration: b.flutterDuration, repeat: Infinity, ease: "easeInOut" },
-              y: { duration: Math.random() * 6 + 6, repeat: Infinity, ease: "easeInOut" },
-              rotate: { duration: Math.random() * 5 + 5, repeat: Infinity, ease: "easeInOut" }
+              y: { duration: b.bobDuration, repeat: Infinity, ease: "easeInOut" },
+              rotate: { duration: b.waverDuration, repeat: Infinity, ease: "easeInOut" }
             }}
           >
             <Butterfly className="w-20 h-20 drop-shadow-[0_0_12px_rgba(255,255,255,0.5)] text-accent/70" />
@@ -204,6 +245,29 @@ const AmbientButterflies = () => {
   );
 };
 
+const formatUpdatedAt = (date: Date) =>
+  date.toLocaleString('ko-KR', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+type GenerationStep = {
+  stage: string;
+  message: string;
+};
+
+const GENERATION_FLOW: GenerationStep[] = [
+  { stage: 'extracting', message: '핵심 사실을 정리하는 중입니다.' },
+  { stage: 'drafting', message: '기사 초안 생성을 요청했습니다.' },
+  { stage: 'streaming', message: '초안이 실시간으로 내려오고 있습니다.' },
+  { stage: 'assembling', message: '생성문을 정리하는 중입니다.' },
+  { stage: 'saving', message: '생성 결과를 DB에 저장하는 중입니다.' },
+  { stage: 'complete', message: '생성 완료. 결과 화면으로 이동합니다.' },
+];
+const VISIBLE_GENERATION_STAGES = new Set(GENERATION_FLOW.map((item) => item.stage));
+
 export default function NewsDashboard() {
   const [step, setStep] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [reporterInfo, setReporterInfo] = useState({ media: '', name: '' });
@@ -212,24 +276,41 @@ export default function NewsDashboard() {
   const [prsError, setPrsError] = useState<string | null>(null);
   const [selectedPR, setSelectedPR] = useState<PressRelease | null>(null);
   const [relatedArticles, setRelatedArticles] = useState<RelatedArticle[]>([]);
+  const [relatedQuery, setRelatedQuery] = useState('');
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [selectedArticles, setSelectedArticles] = useState<RelatedArticle[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generated, setGenerated] = useState<GeneratedArticle | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generationStatus, setGenerationStatus] = useState('');
+  const [generationPreview, setGenerationPreview] = useState('');
+  const [generationSteps, setGenerationSteps] = useState<GenerationStep[]>([]);
+  const [llmModels, setLlmModels] = useState<LLMModelOption[]>([
+    {
+      key: 'claude-sonnet-4-6',
+      label: 'Claude Sonnet 4.6',
+      provider: 'bedrock',
+      family: 'Claude',
+    },
+  ]);
+  const [selectedModelKey, setSelectedModelKey] = useState('claude-sonnet-4-6');
+  const [articleStyle, setArticleStyle] = useState<'default' | 'mediaus'>('default');
+  const [llmModelsError, setLlmModelsError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
+  const [detailPressRelease, setDetailPressRelease] = useState<PressRelease | null>(null);
   const stepRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const generationPreviewRef = useRef<HTMLPreElement | null>(null);
 
   useEffect(() => {
-    const now = new Date();
-    setLastUpdated(now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+    const timer = window.setTimeout(() => {
+      setLastUpdated(formatUpdatedAt(new Date()));
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoadingPRs(true);
-    setPrsError(null);
     fetchPressReleases()
       .then((items) => {
         if (cancelled) return;
@@ -247,6 +328,35 @@ export default function NewsDashboard() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLLMModels()
+      .then((catalog) => {
+        if (cancelled) return;
+        setLlmModels(catalog.models);
+        setSelectedModelKey(catalog.default_model_key);
+        setLlmModelsError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLlmModelsError(err instanceof Error ? err.message : '모델 목록을 불러오지 못했습니다');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!generationPreview) return;
+    const frame = requestAnimationFrame(() => {
+      const el = generationPreviewRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [generationPreview]);
 
   const triggerConfettiFromStep = (stepIndex: number) => {
     const el = stepRefs.current[stepIndex];
@@ -297,6 +407,7 @@ export default function NewsDashboard() {
     setSelectedPR(pr);
     setSelectedArticles([]);
     setRelatedArticles([]);
+    setRelatedQuery('');
     setIsLoadingRelated(true);
     fetchRelatedArticles(pr.id)
       .then((items) => setRelatedArticles(items))
@@ -313,16 +424,77 @@ export default function NewsDashboard() {
     );
   };
 
+  const filteredRelatedArticles = useMemo(() => {
+    const query = relatedQuery.trim().toLowerCase();
+    if (!query) return relatedArticles;
+    return relatedArticles.filter((article) => {
+      const haystack = [
+        article.title,
+        article.source,
+        article.date,
+        article.document_kind,
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [relatedArticles, relatedQuery]);
+
+  const detailImages = useMemo(() => {
+    if (!detailPressRelease) return [];
+    const urls = [
+      detailPressRelease.thumbnailUrl,
+      ...(detailPressRelease.imageUrls ?? []),
+    ].filter((url): url is string => !!url);
+    return Array.from(new Set(urls));
+  }, [detailPressRelease]);
+
   const handleGenerate = () => {
     if (!selectedPR) return;
+    let sawToken = false;
+    const pushGenerationStep = (stage: string, message: string) => {
+      if (!VISIBLE_GENERATION_STAGES.has(stage)) return;
+      setGenerationSteps((prev) => {
+        const nextStep = { stage, message };
+        const last = prev[prev.length - 1];
+        if (last?.stage === stage) {
+          return [...prev.slice(0, -1), nextStep];
+        }
+        return [...prev, nextStep].slice(-8);
+      });
+    };
+
     setIsGenerating(true);
     setGenerateError(null);
-    generateArticle(
+    setGenerationStatus('핵심 사실을 정리하는 중입니다.');
+    setGenerationSteps([{ stage: 'extracting', message: '핵심 사실을 정리하는 중입니다.' }]);
+    setGenerationPreview('');
+    generateArticleStream(
       [selectedPR.id],
       selectedArticles.map((a) => a.id),
+      reporterInfo.name,
+      selectedModelKey,
+      articleStyle,
+      (event) => {
+        if (event.type === 'stage') {
+          setGenerationStatus(event.message);
+          pushGenerationStep(event.stage, event.message);
+        }
+        if (event.type === 'token') {
+          if (!sawToken) {
+            sawToken = true;
+            setGenerationStatus('초안이 실시간으로 내려오고 있습니다.');
+            pushGenerationStep('streaming', '초안이 실시간으로 내려오고 있습니다.');
+          }
+          setGenerationPreview((prev) => prev + event.delta);
+        }
+        if (event.type === 'complete') {
+          setGenerationStatus('생성 완료. 결과 화면으로 이동합니다.');
+          pushGenerationStep('complete', '생성 완료. 결과 화면으로 이동합니다.');
+        }
+      },
     )
-      .then((article) => {
+      .then(async (article) => {
         setGenerated(article);
+        await new Promise((resolve) => setTimeout(resolve, 900));
         setStep(4);
       })
       .catch((err: unknown) => {
@@ -337,6 +509,111 @@ export default function NewsDashboard() {
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-white/[0.015] rounded-full blur-[100px] pointer-events-none" />
 
       <AmbientButterflies />
+
+      <AnimatePresence>
+        {detailPressRelease && (
+          <motion.div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 px-4 py-8 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setDetailPressRelease(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative max-h-[86vh] w-full max-w-3xl overflow-y-auto rounded-sm border border-white/15 bg-[#080808] shadow-[0_30px_120px_rgba(0,0,0,0.85)]"
+            >
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[#080808]/95 px-5 py-4 backdrop-blur">
+                <div className="flex min-w-0 items-center gap-3">
+                  <SourceLogo source={detailPressRelease.source} />
+                  <span className="shrink-0 text-[10px] font-sans uppercase tracking-[0.22em] text-accent/70">
+                    {detailPressRelease.date}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetailPressRelease(null)}
+                  className="flex h-8 w-8 items-center justify-center rounded-sm border border-white/10 text-white/55 hover:border-white/30 hover:text-white"
+                  aria-label="닫기"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-5 p-5 sm:p-6">
+                {detailImages.length > 0 && (
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
+                    <div className="overflow-hidden rounded-sm border border-white/10 bg-white/[0.03]">
+                      <img
+                        src={detailImages[0]}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        className="max-h-[320px] w-full object-contain"
+                      />
+                    </div>
+                    {detailImages.length > 1 && (
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-1">
+                        {detailImages.slice(1, 4).map((url) => (
+                          <div key={url} className="h-20 overflow-hidden rounded-sm border border-white/10 bg-white/[0.03]">
+                            <img
+                              src={url}
+                              alt=""
+                              referrerPolicy="no-referrer"
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div className="text-[10px] font-sans uppercase tracking-[0.24em] text-accent">
+                    Source Detail
+                  </div>
+                  <h3 className="text-xl sm:text-2xl font-sans font-bold leading-snug text-white">
+                    {detailPressRelease.title}
+                  </h3>
+                  {detailPressRelease.summary && (
+                    <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-white/65">
+                      {detailPressRelease.summary}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
+                  {detailPressRelease.detail_url && (
+                    <a
+                      href={detailPressRelease.detail_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-sm border border-white/15 px-3 py-2 text-[10px] font-sans uppercase tracking-[0.18em] text-white/75 hover:border-white/35 hover:text-white"
+                    >
+                      원문 보기 <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = detailPressRelease;
+                      setDetailPressRelease(null);
+                      handleSelectPR(target);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-sm bg-white px-3 py-2 text-[10px] font-sans font-bold uppercase tracking-[0.18em] text-black hover:bg-white/90"
+                  >
+                    이 소스 선택 <ArrowRight className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="max-w-6xl mx-auto w-full relative z-10">
         
@@ -423,7 +700,7 @@ export default function NewsDashboard() {
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div className="flex items-center gap-3">
                   <h3 className="text-xl sm:text-2xl font-serif tracking-widest uppercase font-bold text-white/90">최신 보도자료</h3>
-                  <button className="flex items-center gap-1.5 text-[10px] tracking-[0.1em] font-sans text-accent bg-white/5 border border-white/10 px-2 py-1 hover:bg-white/10 hover:text-ink transition-all duration-300 rounded-sm" onClick={() => setLastUpdated(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }))}>
+                  <button className="flex items-center gap-1.5 text-[10px] tracking-[0.1em] font-sans text-accent bg-white/5 border border-white/10 px-2 py-1 hover:bg-white/10 hover:text-ink transition-all duration-300 rounded-sm" onClick={() => setLastUpdated(formatUpdatedAt(new Date()))}>
                     <RefreshCcw className="w-2.5 h-2.5" />
                     업데이트 : {lastUpdated}
                   </button>
@@ -457,26 +734,36 @@ export default function NewsDashboard() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.4, delay: idx * 0.05, ease: "easeOut" }}
                     onClick={() => handleSelectPR(pr)}
-                    className="group relative bg-white/[0.015] border border-white/10 hover:bg-white/[0.04] hover:border-white/30 transition-all duration-300 p-3 sm:py-3 sm:px-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center cursor-pointer overflow-hidden rounded-[2px]"
+                    className="group relative bg-white/[0.015] border border-white/10 hover:bg-white/[0.04] hover:border-white/30 transition-all duration-300 p-3 sm:py-3 sm:px-4 flex flex-col sm:flex-row gap-3 items-start cursor-pointer overflow-visible rounded-[2px]"
                   >
                     <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-white/0 group-hover:bg-white/40 transition-colors duration-300" />
 
                     {pr.thumbnailUrl && (
-                      <div className="shrink-0 w-full sm:w-20 h-32 sm:h-20 overflow-hidden rounded-[2px] bg-white/[0.03] border border-white/10">
-                        <img
-                          src={pr.thumbnailUrl}
-                          alt=""
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
-                          }}
-                          className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                        />
+                      <div className="group/thumb relative z-20 shrink-0 w-full sm:w-[112px] h-32 sm:h-[112px] overflow-visible rounded-[2px]">
+                        <div className="h-full w-full overflow-hidden rounded-[2px] bg-white/[0.03] border border-white/10">
+                          <img
+                            src={pr.thumbnailUrl}
+                            alt=""
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.currentTarget.closest('.group\\/thumb') as HTMLElement | null)?.style.setProperty('display', 'none');
+                            }}
+                            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity rounded-[2px]"
+                          />
+                        </div>
+                        <div className="pointer-events-none absolute left-full top-1/2 z-[120] ml-5 hidden w-[420px] -translate-y-1/2 overflow-hidden rounded-[3px] border border-white/25 bg-black shadow-[0_30px_100px_rgba(0,0,0,0.85),0_0_45px_rgba(255,255,255,0.12)] sm:group-hover/thumb:block">
+                          <img
+                            src={pr.thumbnailUrl}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            className="max-h-[340px] w-full object-contain bg-black"
+                          />
+                        </div>
                       </div>
                     )}
 
-                    <div className="flex-1 space-y-1.5 w-full pl-1.5">
+                    <div className="min-w-0 flex-1 space-y-1.5 w-full pl-1.5">
                       <div className="flex items-center gap-2.5">
                         {pr.isNew && (
                           <motion.span
@@ -491,10 +778,20 @@ export default function NewsDashboard() {
                         <SourceLogo source={pr.source} />
                         <span className="text-[9px] font-sans uppercase tracking-[0.2em] text-accent/70">{pr.date}</span>
                       </div>
-                      <h4 className="text-[17px] sm:text-[19px] font-sans font-[700] text-white/90 group-hover:text-white transition-colors tracking-tight leading-snug drop-shadow-sm">{pr.title}</h4>
-                      <p className="text-[13px] font-sans font-normal text-white/60 max-w-4xl leading-relaxed line-clamp-2">{pr.summary}</p>
+                      <h4 className="text-[17px] sm:text-[19px] font-sans font-[700] text-white/90 group-hover:text-white transition-colors tracking-tight leading-snug drop-shadow-sm line-clamp-2">{pr.title}</h4>
+                      <p className="text-[13px] font-sans font-normal text-white/60 max-w-5xl leading-relaxed line-clamp-2">{pr.summary}</p>
                     </div>
-                    <div className="flex gap-2 sm:flex-col items-end sm:w-24 opacity-40 group-hover:opacity-100 transition-opacity justify-center h-full">
+                    <div className="flex shrink-0 flex-row flex-wrap gap-2 items-start justify-start opacity-55 transition-opacity group-hover:opacity-100 sm:min-h-[112px] sm:w-28 sm:flex-col sm:items-end sm:justify-between sm:pt-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetailPressRelease(pr);
+                        }}
+                        className="text-[9px] uppercase tracking-[0.2em] font-sans text-accent hover:text-ink flex items-center gap-1.5 transition-all hover:gap-2"
+                      >
+                        자세히 보기 <Info className="w-2.5 h-2.5" />
+                      </button>
                       {pr.detail_url ? (
                         <a
                           href={pr.detail_url}
@@ -536,7 +833,13 @@ export default function NewsDashboard() {
                 <h3 className="text-xl sm:text-2xl font-serif tracking-widest uppercase font-bold text-white/90">관련 기사 선택</h3>
                 <div className="relative w-full sm:w-60 group">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-accent group-focus-within:text-ink transition-colors" />
-                  <input type="text" placeholder="기사 검색..." className="w-full bg-white/[0.02] border border-white/10 text-ink text-xs pl-9 pr-3 py-2 outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all placeholder:text-white/20 rounded-sm" />
+                  <input
+                    type="text"
+                    value={relatedQuery}
+                    onChange={(e) => setRelatedQuery(e.target.value)}
+                    placeholder="기사 검색..."
+                    className="w-full bg-white/[0.02] border border-white/10 text-ink text-xs pl-9 pr-3 py-2 outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all placeholder:text-white/20 rounded-sm"
+                  />
                 </div>
               </div>
 
@@ -551,7 +854,12 @@ export default function NewsDashboard() {
                     관련 기사가 없습니다
                   </div>
                 )}
-                {!isLoadingRelated && relatedArticles.map((article, idx) => {
+                {!isLoadingRelated && relatedArticles.length > 0 && filteredRelatedArticles.length === 0 && (
+                  <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-white/40">
+                    검색 결과가 없습니다
+                  </div>
+                )}
+                {!isLoadingRelated && filteredRelatedArticles.map((article, idx) => {
                   const isSelected = selectedArticles.some(a => a.id === article.id);
                   return (
                     <motion.div
@@ -576,9 +884,22 @@ export default function NewsDashboard() {
                         </div>
                         <h4 className={`text-[15px] sm:text-[16px] font-sans font-medium tracking-tight transition-colors ${isSelected ? 'text-white' : 'text-white/70 group-hover:text-white/90'}`}>{article.title}</h4>
                       </div>
-                      <div className="hidden sm:flex text-[9px] font-sans uppercase tracking-[0.2em] text-accent hover:text-ink items-center gap-1.5 transition-all hover:gap-2 opacity-40 group-hover:opacity-100 z-10">
-                        원문 <ExternalLink className="w-2.5 h-2.5" />
-                      </div>
+                      {article.detail_url ? (
+                        <a
+                          href={article.detail_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="hidden sm:flex text-[9px] font-sans uppercase tracking-[0.2em] text-accent hover:text-ink items-center gap-1.5 transition-all hover:gap-2 opacity-40 group-hover:opacity-100 z-10"
+                          aria-label={`${article.title} 원문 보기`}
+                        >
+                          원문 <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      ) : (
+                        <span className="hidden sm:flex text-[9px] font-sans uppercase tracking-[0.2em] text-white/25 items-center gap-1.5 opacity-40 z-10">
+                          원문 없음
+                        </span>
+                      )}
                     </motion.div>
                   )
                 })}
@@ -603,6 +924,7 @@ export default function NewsDashboard() {
                   </button>
                 </div>
               </motion.div>
+
             </motion.div>
           )}
 
@@ -670,6 +992,45 @@ export default function NewsDashboard() {
                     ))}
                   </div>
                 </div>
+
+                <div className="grid gap-4 md:grid-cols-2 relative z-10 pt-3 border-t border-white/10">
+                  <label className="space-y-2">
+                    <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
+                      생성 모델
+                    </span>
+                    <select
+                      value={selectedModelKey}
+                      onChange={(e) => setSelectedModelKey(e.target.value)}
+                      className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
+                    >
+                      {llmModels.map((model) => (
+                        <option key={model.key} value={model.key} className="bg-[#101010]">
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
+                      기사 스타일
+                    </span>
+                    <select
+                      value={articleStyle}
+                      onChange={(e) => setArticleStyle(e.target.value as 'default' | 'mediaus')}
+                      className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
+                    >
+                      <option value="default" className="bg-[#101010]">일반 뉴스</option>
+                      <option value="mediaus" className="bg-[#101010]">미디어스 스타일</option>
+                    </select>
+                  </label>
+                </div>
+
+                {llmModelsError && (
+                  <div className="relative z-10 border border-red-400/20 bg-red-500/10 px-4 py-3 text-left text-[12px] font-sans text-red-200 rounded-sm">
+                    {llmModelsError}
+                  </div>
+                )}
               </motion.div>
 
               <motion.div 
@@ -699,6 +1060,108 @@ export default function NewsDashboard() {
                   <div className={`absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-transparent via-white to-transparent transition-all duration-[2.5s] ease-linear opacity-90 ${isGenerating ? 'w-[200%] -translate-x-1/2 animate-pulse' : 'w-0 group-hover:w-[100%] duration-500'}`} />
                 </button>
               </motion.div>
+
+              <AnimatePresence>
+                {isGenerating && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 px-4 backdrop-blur-md"
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, y: 18, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.99 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                      className="w-full max-w-3xl overflow-hidden rounded-sm border border-white/15 bg-[#070707]/95 text-left shadow-[0_30px_120px_rgba(0,0,0,0.75),0_0_50px_rgba(255,255,255,0.06)]"
+                    >
+                      <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                        <div>
+                          <div className="text-[10px] font-sans uppercase tracking-[0.28em] text-accent">
+                            Generation Stream
+                          </div>
+                          <div className="mt-1 text-sm font-sans font-bold text-white/90">
+                            기사 생성 진행 중
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 text-[9px] font-sans uppercase tracking-[0.24em] text-green-300/80">
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.8)]" />
+                          Live
+                        </div>
+                      </div>
+
+                      <div className="max-h-[78vh] space-y-5 overflow-y-auto px-5 py-5">
+                        <div className="space-y-2.5">
+                          {GENERATION_FLOW.map((item, idx) => {
+                            const latestStep = generationSteps[generationSteps.length - 1];
+                            const currentIndex = Math.max(
+                              0,
+                              GENERATION_FLOW.findIndex((stepItem) => stepItem.stage === latestStep?.stage),
+                            );
+                            const currentStage = latestStep?.stage ?? 'extracting';
+                            const receivedStep = [...generationSteps]
+                              .reverse()
+                              .find((stepItem) => stepItem.stage === item.stage);
+                            const message = receivedStep?.message ?? item.message;
+                            const isComplete = currentStage === 'complete';
+                            const isCurrent = item.stage === currentStage && !isComplete;
+                            const isDone = isComplete || idx < currentIndex;
+                            const isPending = !isCurrent && !isDone;
+                            return (
+                              <motion.div
+                                key={item.stage}
+                                initial={false}
+                                animate={{ opacity: isPending ? 0.45 : 1, x: 0 }}
+                                className={`flex items-start gap-3 text-[12px] font-sans tracking-[0.02em] transition-colors ${
+                                  isCurrent ? 'text-white/90' : isDone ? 'text-white/55' : 'text-white/30'
+                                }`}
+                              >
+                                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+                                  {isDone ? (
+                                    <CheckCircle2 className="h-4 w-4 text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.45)]" />
+                                  ) : isCurrent ? (
+                                    <RefreshCcw className="h-3.5 w-3.5 animate-spin text-white/85" />
+                                  ) : (
+                                    <span className="h-3.5 w-3.5 rounded-full border border-white/20 bg-white/[0.03]" />
+                                  )}
+                                </span>
+                                <span>{message}</span>
+                              </motion.div>
+                            );
+                          })}
+                          {generationSteps.length === 0 && (
+                            <div className="flex items-center gap-3 text-[12px] font-sans text-white/80">
+                              <RefreshCcw className="h-3.5 w-3.5 animate-spin" />
+                              {generationStatus}
+                            </div>
+                          )}
+                        </div>
+
+                        {generationPreview && (
+                          <div className="border-t border-white/10 pt-4">
+                            <div className="mb-2 text-[10px] font-sans uppercase tracking-[0.22em] text-accent/80">
+                              Streaming Draft
+                            </div>
+                            <pre
+                              ref={generationPreviewRef}
+                              className="max-h-[34vh] min-h-[180px] overflow-y-auto scroll-smooth whitespace-pre-wrap rounded-sm border border-white/10 bg-white/[0.025] p-4 text-[12px] leading-relaxed font-sans text-white/65"
+                            >
+                              {generationPreview}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {generateError && (
+                <div className="border border-red-400/20 bg-red-500/10 px-4 py-3 text-left text-[12px] font-sans text-red-200 rounded-sm">
+                  {generateError}
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -754,12 +1217,21 @@ export default function NewsDashboard() {
                          리드 문단
                       </label>
                     )}
-                    <textarea
-                      value={generated?.lead ?? ''}
-                      readOnly={!isEditing}
-                      onChange={(e) => setGenerated((g) => g ? { ...g, lead: e.target.value } : g)}
-                      className={`w-full bg-transparent text-base sm:text-[17px] font-sans font-medium text-orange-400 leading-relaxed outline-none transition-all resize-none min-h-[90px] px-2 ${isEditing ? 'border-l-2 border-white/60 focus:bg-white/[0.03] py-2 rounded-sm' : 'border-transparent py-1'}`}
-                    />
+                    {isEditing ? (
+                      <textarea
+                        value={generated?.lead ?? ''}
+                        onChange={(e) => setGenerated((g) => g ? { ...g, lead: e.target.value } : g)}
+                        className="w-full bg-transparent text-base sm:text-[17px] font-sans font-medium text-orange-400 leading-relaxed outline-none transition-all resize-none min-h-[90px] px-2 border-l-2 border-white/60 focus:bg-white/[0.03] py-2 rounded-sm"
+                      />
+                    ) : (
+                      <BodyWithCitations
+                        body={generated?.lead ?? ''}
+                        citations={generated?.citations ?? {}}
+                        fallbackCitationId="1"
+                        appendFallbackWhenUncited
+                        className="w-full bg-transparent text-base sm:text-[17px] font-sans font-medium text-orange-400 leading-relaxed px-2 py-1 whitespace-pre-wrap"
+                      />
+                    )}
                   </motion.div>
 
                   <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1,y:0}} transition={{delay:0.6}} className="space-y-1.5 group">
@@ -778,37 +1250,12 @@ export default function NewsDashboard() {
                       <BodyWithCitations
                         body={generated?.body ?? ''}
                         citations={generated?.citations ?? {}}
+                        fallbackCitationId="1"
+                        appendFallbackWhenUncited
                       />
                     )}
                   </motion.div>
                 </div>
-
-                {/* Related Articles below content */}
-                {(selectedArticles.length > 0) && (
-                  <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1,y:0}} transition={{delay:0.7}} className="mt-12 border-t border-white/10 pt-6 px-2">
-                    <h4 className="text-[11px] uppercase tracking-[0.2em] text-accent font-sans mb-4 flex items-center gap-2">
-                      관련 기사
-                    </h4>
-                    <div className="space-y-3">
-                      {selectedArticles.map((article) => (
-                        <a
-                          key={article.id}
-                          href={article.detail_url || '#'}
-                          target={article.detail_url ? '_blank' : undefined}
-                          rel={article.detail_url ? 'noreferrer' : undefined}
-                          className="block group/link"
-                        >
-                           <div className="flex items-center gap-3">
-                             <div className="w-1.5 h-1.5 rounded-full bg-white/20 group-hover/link:bg-white/60 transition-colors" />
-                             <span className="text-[13px] sm:text-[14px] text-white/70 group-hover/link:text-white transition-colors tracking-tight">
-                               {article.title} <span className="text-white/30 text-[11px] ml-2 font-mono">{article.source}</span>
-                             </span>
-                           </div>
-                        </a>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
               </div>
 
               {/* Sidebar */}
@@ -829,6 +1276,59 @@ export default function NewsDashboard() {
                   </button>
                 </div>
 
+                <div className="border border-white/10 bg-white/[0.02] p-5 space-y-4 backdrop-blur-md rounded-sm">
+                  <h4 className="text-[10px] tracking-[0.2em] text-accent border-b border-white/10 font-sans pb-3 flex items-center gap-2">
+                    <Info className="w-3 h-3" /> 사용한 소스
+                  </h4>
+
+                  <div className="border-l-[3px] border-white/30 pl-3 py-1">
+                    <div className="mb-2 flex flex-wrap items-center gap-2 text-[9px] tracking-[0.16em] text-white/35 font-sans uppercase">
+                      메인 보도자료
+                      <SourceLogo source={selectedPR.source} />
+                      <span>{selectedPR.date}</span>
+                    </div>
+                    <a
+                      href={selectedPR.detail_url || '#'}
+                      target={selectedPR.detail_url ? '_blank' : undefined}
+                      rel={selectedPR.detail_url ? 'noreferrer' : undefined}
+                      className="block text-[13px] font-sans font-bold leading-snug text-white/85 hover:text-white transition-colors"
+                    >
+                      {selectedPR.title}
+                    </a>
+                  </div>
+
+                  {selectedArticles.length > 0 && (
+                    <div className="border-t border-white/10 pt-4">
+                      <div className="mb-2 text-[9px] tracking-[0.18em] text-white/35 font-sans uppercase">
+                        선택한 관련기사 {selectedArticles.length}개
+                      </div>
+                      <div className="grid gap-2">
+                        {selectedArticles.map((article, idx) => (
+                          <a
+                            key={article.id}
+                            href={article.detail_url || '#'}
+                            target={article.detail_url ? '_blank' : undefined}
+                            rel={article.detail_url ? 'noreferrer' : undefined}
+                            className="group/link grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 rounded-[2px] border border-white/5 bg-black/20 px-3 py-2 hover:border-white/15 hover:bg-white/[0.035] transition-colors"
+                          >
+                            <span className="text-[10px] font-sans text-accent/60 font-bold">[{idx + 1}]</span>
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <SourceLogo source={article.source} />
+                                <span className="shrink-0 text-[9px] font-sans text-white/30 tracking-[0.12em]">
+                                  {article.date}
+                                </span>
+                              </div>
+                              <div className="line-clamp-2 text-[12px] leading-snug text-white/60 group-hover/link:text-white/90 transition-colors">
+                                {article.title}
+                              </div>
+                            </div>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
               </motion.div>
             </motion.div>

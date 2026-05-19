@@ -48,7 +48,7 @@ class MockRAGService:
 
 
 class MockArticleGenerator:
-    def generate(self, press_releases, related_chunks):
+    def generate(self, press_releases, related_chunks, *, provider=None, model=None, style=None):
         # 첫 보도자료 기준 mock json으로 동작 흉내
         pr_id = press_releases[0]["id"] if press_releases else None
         extracted = MOCK_JSON.get(pr_id, {
@@ -86,3 +86,17 @@ class MockArticleGenerator:
             "who": "-", "policy": "-", "decision": "-",
             "target": "-", "numbers": "-", "origin": "-",
         })
+
+    def stream_generate(self, press_releases, related_chunks, *, provider=None, model=None, style=None):
+        yield {"type": "stage", "stage": "extracting", "message": "핵심 사실을 추출하는 중입니다."}
+        yield {"type": "stage", "stage": "drafting", "message": "기사 초안을 작성하는 중입니다."}
+        article = self.generate(
+            press_releases,
+            related_chunks,
+            provider=provider,
+            model=model,
+            style=style,
+        )
+        for delta in ("제목: ", article["title"], "\n리드: ", article["lead"], "\n본문: ", article["body"]):
+            yield {"type": "token", "delta": delta}
+        yield {"type": "article", "article": article}

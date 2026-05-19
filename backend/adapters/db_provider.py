@@ -14,6 +14,25 @@ from rag.config import db_config
 
 # 7일 이내면 is_new 표시
 _NEW_DAYS = 7
+_SUMMARY_PREVIEW_LIMIT = 220
+
+
+def _preview_summary(summary: str | None, content_text: str | None) -> str:
+    """Return a readable list preview without cutting fallback text mid-flow."""
+    source = summary or content_text or ""
+    normalized = " ".join(source.split())
+    if len(normalized) <= _SUMMARY_PREVIEW_LIMIT:
+        return normalized
+
+    cut = normalized[:_SUMMARY_PREVIEW_LIMIT].rstrip()
+    sentence_end = max(cut.rfind(mark) for mark in (".", "!", "?", "다.", "요.", "함.", "임."))
+    if sentence_end >= 80:
+        return cut[: sentence_end + 1].rstrip()
+
+    split_at = max(cut.rfind(mark) for mark in (" ", ",", "·", "…", "-"))
+    if split_at >= 120:
+        cut = cut[:split_at].rstrip()
+    return f"{cut}..."
 
 
 class DBPressReleaseProvider:
@@ -27,12 +46,17 @@ class DBPressReleaseProvider:
         where = ""
         if q and q.strip():
             where = """
-            WHERE title ILIKE %s OR source ILIKE %s
-               OR COALESCE(summary, '') ILIKE %s
-               OR content_text ILIKE %s
+            WHERE document_kind = 'press_release'
+              AND (
+                  title ILIKE %s OR source ILIKE %s
+                  OR COALESCE(summary, '') ILIKE %s
+                  OR content_text ILIKE %s
+              )
             """
             like = f"%{q.strip()}%"
             params = [like, like, like, like]
+        else:
+            where = "WHERE document_kind = 'press_release'"
 
         # DISTINCT ON으로 (title, source, date) 동일한 중복 행 제거.
         # 크롤러가 같은 보도자료를 여러 URL로 수집해 doc_id만 다른 케이스가 있어서.
@@ -65,8 +89,7 @@ class DBPressReleaseProvider:
         for r in rows:
             d = r["date"]
             is_new = bool(d and d >= threshold)
-            # summary 없으면 본문 앞 80자로 대체
-            summary = r["summary"] or (r["content_text"] or "")[:80]
+            summary = _preview_summary(r["summary"], r["content_text"])
             # image_urls는 JSONB. psycopg2가 list로 디코딩.
             imgs = r.get("image_urls") or []
             thumbnail = imgs[0] if isinstance(imgs, list) and imgs else None
@@ -89,6 +112,7 @@ class DBPressReleaseProvider:
             SELECT doc_id, source, title, date, summary, content_text, detail_url, image_urls
             FROM raw_documents
             WHERE doc_id = %s
+              AND document_kind = 'press_release'
         """
         with psycopg2.connect(db_config.dsn) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -104,7 +128,7 @@ class DBPressReleaseProvider:
             "title": row["title"],
             "source": row["source"],
             "date": row["date"].isoformat() if row["date"] else None,
-            "summary": row["summary"],
+            "summary": _preview_summary(row["summary"], row["content_text"]),
             "content_text": row["content_text"] or "",
             "detail_url": row["detail_url"],
             "thumbnail_url": imgs[0] if imgs else None,

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -65,16 +66,18 @@ def get_connection():
 
 UPSERT_RAW_SQL = """
 INSERT INTO raw_documents (
-    doc_id, source, department, author, title, date, summary,
+    doc_id, source, document_kind, parent_doc_id, department, author, title, date, summary,
     content_text, attachment_text, detail_url,
     image_urls, attachments, hashtags, "references", crawled_at
 ) VALUES (
-    %s, %s, %s, %s, %s, %s, %s,
+    %s, %s, %s, %s, %s, %s, %s, %s, %s,
     %s, %s, %s,
     %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s
 )
 ON CONFLICT (doc_id) DO UPDATE SET
     source          = EXCLUDED.source,
+    document_kind   = EXCLUDED.document_kind,
+    parent_doc_id   = EXCLUDED.parent_doc_id,
     department      = EXCLUDED.department,
     author          = EXCLUDED.author,
     title           = EXCLUDED.title,
@@ -98,6 +101,8 @@ def upsert_raw(conn, raw: dict) -> str:
         cur.execute(UPSERT_RAW_SQL, (
             raw["doc_id"],
             src,
+            raw.get("document_kind") or "press_release",
+            raw.get("parent_doc_id"),
             raw.get("department"),
             raw.get("author"),
             raw.get("title") or "",
@@ -115,6 +120,58 @@ def upsert_raw(conn, raw: dict) -> str:
         return cur.fetchone()[0]
 
 
+UNCHANGED_RAW_SQL = """
+SELECT rd.id
+FROM raw_documents rd
+WHERE rd.doc_id = %s
+  AND rd.source = %s
+  AND rd.document_kind = %s
+  AND rd.parent_doc_id IS NOT DISTINCT FROM %s
+  AND rd.department IS NOT DISTINCT FROM %s
+  AND rd.author IS NOT DISTINCT FROM %s
+  AND rd.title = %s
+  AND rd.date IS NOT DISTINCT FROM %s::date
+  AND rd.summary IS NOT DISTINCT FROM %s
+  AND rd.content_text = %s
+  AND rd.attachment_text IS NOT DISTINCT FROM %s
+  AND rd.detail_url IS NOT DISTINCT FROM %s
+  AND rd.image_urls = %s::jsonb
+  AND rd.attachments = %s::jsonb
+  AND rd.hashtags = %s::jsonb
+  AND rd."references" = %s::jsonb
+  AND EXISTS (
+      SELECT 1 FROM documents d WHERE d.raw_document_id = rd.id
+  )
+LIMIT 1
+"""
+
+
+def unchanged_raw_id(conn, raw: dict) -> str | None:
+    """Return raw id when a doc is already chunked and the crawler payload is unchanged."""
+    src = normalize_source(raw["source"])
+    with conn.cursor() as cur:
+        cur.execute(UNCHANGED_RAW_SQL, (
+            raw["doc_id"],
+            src,
+            raw.get("document_kind") or "press_release",
+            raw.get("parent_doc_id"),
+            raw.get("department"),
+            raw.get("author"),
+            raw.get("title") or "",
+            raw.get("date"),
+            raw.get("summary"),
+            raw.get("content_text") or "",
+            raw.get("attachment_text"),
+            raw.get("detail_url"),
+            json.dumps(raw.get("image_urls") or []),
+            json.dumps(raw.get("attachments") or []),
+            json.dumps(raw.get("hashtags") or []),
+            json.dumps(raw.get("references") or []),
+        ))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
 # ──────────────────────────────────────────────
 # 청킹 + 메타 prefix + full_text
 # ──────────────────────────────────────────────
@@ -130,6 +187,7 @@ def build_chunks(
     use_context=False: 4단계 LLM 호출 skip (디버그/--no-context용).
     """
     src = normalize_source(raw["source"])
+    src_token = _chunk_source_token(src)
     date_str = raw.get("date") or ""
     date_compact = date_str.replace("-", "") or "00000000"
     title = raw.get("title") or ""
@@ -145,7 +203,7 @@ def build_chunks(
         cleaned = clean_text(text)
         chunk_texts = split(cleaned)
         for original in chunk_texts:
-            chunk_id = f"{src}_{date_compact}_{doc_hash}_{counter:03d}"
+            chunk_id = f"{src_token}_{date_compact}_{doc_hash}_{counter:03d}"
             counter += 1
             ctx_prefix = (
                 contextualizer.make_context_prefix(document=cleaned, chunk=original)
@@ -165,6 +223,16 @@ def build_chunks(
                 full_text=full_text,
             ))
     return chunks
+
+
+def _chunk_source_token(source: str) -> str:
+    """Return a stable, short source token so chunk_id stays within VARCHAR(64)."""
+    token = re.sub(r"[^0-9A-Za-z가-힣]+", "_", source).strip("_").lower()
+    token = re.sub(r"_+", "_", token) or "source"
+    if len(token) <= 24:
+        return token
+    digest = hashlib.md5(source.encode()).hexdigest()[:8]
+    return f"{token[:24]}_{digest}"
 
 
 # ──────────────────────────────────────────────
@@ -307,10 +375,24 @@ def ingest_one(
     use_context: bool = True,
     dedup: bool = True,
 ) -> dict:
+    existing_raw_id = unchanged_raw_id(conn, raw)
+    if existing_raw_id:
+        return {
+            "doc_id": raw["doc_id"],
+            "raw_id": str(existing_raw_id),
+            "chunks": 0,
+            "inserted": 0,
+            "merged": 0,
+            "deleted": 0,
+            "skipped": 1,
+        }
+
     raw_id = upsert_raw(conn, raw)
-    deleted = delete_existing_chunks(conn, raw_id)
+    # raw row만 먼저 확정하고, CPU-bound embedding 동안 DB lock을 잡지 않는다.
+    conn.commit()
     chunks = build_chunks(raw, raw_id, use_context=use_context)
     embed_chunks(chunks)
+    deleted = delete_existing_chunks(conn, raw_id)
     inserted, merged = insert_documents(conn, chunks, dedup=dedup)
     return {
         "doc_id": raw["doc_id"],
@@ -319,6 +401,7 @@ def ingest_one(
         "inserted": inserted,
         "merged": merged,
         "deleted": deleted,
+        "skipped": 0,
     }
 
 
@@ -338,6 +421,7 @@ def ingest_jsonl(
         "inserted": 0,
         "merged": 0,
         "deleted": 0,
+        "skipped": 0,
         "errors": 0,
     }
     started = time.time()
@@ -356,11 +440,14 @@ def ingest_jsonl(
                     stats["inserted"] += r["inserted"]
                     stats["merged"] += r["merged"]
                     stats["deleted"] += r["deleted"]
+                    stats["skipped"] += r["skipped"]
                     if (i + 1) % 10 == 0:
                         elapsed = time.time() - started
                         print(f"  [{i+1}] {r['doc_id']}: "
                               f"+{r['inserted']} merged={r['merged']} "
+                              f"skipped={r['skipped']} "
                               f"(누적 ins={stats['inserted']}, mrg={stats['merged']}, "
+                              f"skip={stats['skipped']}, "
                               f"{elapsed:.1f}s)")
                 except Exception as e:
                     conn.rollback()

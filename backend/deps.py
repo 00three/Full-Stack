@@ -52,6 +52,7 @@ def get_rag_service():
 # ──────────────────────────────────────────────
 
 _article_generator = None
+_article_repository = None
 
 
 def get_article_generator():
@@ -65,3 +66,16 @@ def get_article_generator():
             from backend.adapters.article_generator import LLMArticleGenerator
             _article_generator = LLMArticleGenerator()
     return _article_generator
+
+
+def get_article_repository():
+    """생성 기사 저장소."""
+    global _article_repository
+    if _article_repository is None:
+        if _USE_MOCK:
+            from backend.adapters.article_repository import MockArticleRepository
+            _article_repository = MockArticleRepository()
+        else:
+            from backend.adapters.article_repository import DBArticleRepository
+            _article_repository = DBArticleRepository()
+    return _article_repository

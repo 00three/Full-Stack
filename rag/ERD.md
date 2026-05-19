@@ -5,7 +5,9 @@ erDiagram
   raw_documents {
     uuid id PK
     varchar doc_id UK "크롤러 doc_id (예: kcc_20260421_9c2ca9c5) — 멱등 INSERT 키"
-    varchar source "KCC | NSP | MBC | NODONG (ingest에서 정규화)"
+    varchar source "KCC | NSP | MBC | NODONG | 외부 참고기사 매체명"
+    varchar document_kind "press_release | reference_article"
+    varchar parent_doc_id "reference_article의 원 보도자료 doc_id"
     varchar department "담당 부서 (nullable)"
     varchar author "작성자/기자명 (nullable)"
     varchar title "보도자료 제목"
@@ -25,7 +27,7 @@ erDiagram
   documents {
     uuid id PK
     uuid raw_document_id FK
-    varchar chunk_id UK "출처_날짜_번호 형식 (KCC_20260318_001)"
+    varchar chunk_id UK "짧은 출처토큰_날짜_doc해시_번호 형식"
     varchar source "출처"
     date date "원본 문서 날짜"
     varchar title "원본 문서 제목"
@@ -44,8 +46,13 @@ erDiagram
     text lead "리드 문단"
     text body "본문"
     jsonb source_mapping "문장별 출처 chunk_id 매핑"
+    jsonb source_release_ids "선택된 보도자료 doc_id 목록"
     jsonb selected_chunk_ids "기자가 선택한 참고자료 ID 목록"
+    jsonb citations "본문 인용 메타데이터"
     jsonb extracted_json "1차 LLM JSON 추출 결과"
+    varchar llm_provider "bedrock | openai | anthropic"
+    varchar llm_model_id "실제 호출 modelId"
+    varchar article_style "default | mediaus"
     varchar status "draft | saved | published"
     varchar created_by "기자 ID"
     timestamp created_at "생성 시점"

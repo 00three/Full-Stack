@@ -4,12 +4,16 @@ LLM 모듈: 1차 JSON 추출 + 2차 기사 생성 + 3차 사실검증
 Provider:
 - openai: gpt-4o / gpt-4o-mini 등
 - anthropic: claude-sonnet-4-6 / claude-haiku-4-5 등
+- bedrock: Amazon Bedrock Converse / ConverseStream 호환 모델
 설정은 rag/config.py LLMConfig 또는 환경변수 LLM_PROVIDER로 결정.
 함수 인자로 provider/model을 넘기면 그 호출에 한해 override (compare 스크립트용).
 """
 
 import json
+import re
+from collections.abc import Iterator
 
+import boto3
 from anthropic import Anthropic
 from openai import OpenAI
 
@@ -22,6 +26,7 @@ from .config import llm_config
 
 _openai_client: OpenAI | None = None
 _anthropic_client: Anthropic | None = None
+_bedrock_client = None
 
 
 def _get_openai() -> OpenAI:
@@ -47,6 +52,46 @@ GENERATE_TEMP = 0.4
 VERIFY_TEMP = 0.0
 
 
+def _get_bedrock():
+    global _bedrock_client
+    if _bedrock_client is None:
+        _bedrock_client = boto3.client("bedrock-runtime", region_name=llm_config.bedrock_region)
+    return _bedrock_client
+
+
+def _resolve_provider_model(provider: str | None, model: str | None) -> tuple[str, str]:
+    resolved_provider = provider or llm_config.provider
+    if model:
+        return resolved_provider, model
+    if resolved_provider == "anthropic":
+        return resolved_provider, llm_config.anthropic_model
+    if resolved_provider == "bedrock":
+        if not llm_config.bedrock_model_id:
+            raise RuntimeError("BEDROCK_MODEL_ID가 설정되지 않았습니다.")
+        return resolved_provider, llm_config.bedrock_model_id
+    return resolved_provider, llm_config.openai_model
+
+
+def _bedrock_request(
+    system_prompt: str,
+    user_prompt: str,
+    model: str,
+    *,
+    temperature: float,
+    max_tokens: int | None = None,
+) -> dict:
+    inference_config = {"maxTokens": max_tokens or llm_config.max_tokens}
+    if "claude-opus-4-7" not in model:
+        inference_config["temperature"] = temperature
+
+    return {
+        "modelId": model,
+        "system": [{"text": system_prompt}],
+        "messages": [{"role": "user", "content": [{"text": user_prompt}]}],
+        "inferenceConfig": inference_config,
+    }
+
+
 def _call_llm(
     system_prompt: str,
     user_prompt: str,
@@ -54,18 +99,16 @@ def _call_llm(
     provider: str | None = None,
     model: str | None = None,
     temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """LLM 호출 (재시도 3회). provider/model 미지정시 config 기본값 사용.
 
     temperature: None이면 config 기본값 사용. 단계별로 다르게 호출할 때 override.
     """
-    provider = provider or llm_config.provider
-    if model is None:
-        model = (
-            llm_config.anthropic_model if provider == "anthropic" else llm_config.openai_model
-        )
+    provider, model = _resolve_provider_model(provider, model)
     if temperature is None:
         temperature = llm_config.temperature
+    effective_max_tokens = max_tokens or llm_config.max_tokens
 
     last_error = None
     for _ in range(3):
@@ -73,17 +116,32 @@ def _call_llm(
             if provider == "anthropic":
                 resp = _get_anthropic().messages.create(
                     model=model,
-                    max_tokens=llm_config.max_tokens,
+                    max_tokens=effective_max_tokens,
                     temperature=temperature,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_prompt}],
                 )
                 return resp.content[0].text
+            if provider == "bedrock":
+                resp = _get_bedrock().converse(
+                    **_bedrock_request(
+                        system_prompt,
+                        user_prompt,
+                        model,
+                        temperature=temperature,
+                        max_tokens=effective_max_tokens,
+                    )
+                )
+                return "".join(
+                    block.get("text", "")
+                    for block in resp["output"]["message"]["content"]
+                    if block.get("text")
+                )
             else:
                 resp = _get_openai().chat.completions.create(
                     model=model,
                     temperature=temperature,
-                    max_tokens=llm_config.max_tokens,
+                    max_tokens=effective_max_tokens,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
@@ -94,6 +152,65 @@ def _call_llm(
             last_error = e
 
     raise RuntimeError(f"LLM 호출 3회 실패 ({provider}/{model}): {last_error}")
+
+
+def _stream_llm(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> Iterator[str]:
+    """LLM 응답 텍스트를 delta 단위로 yield."""
+    provider, model = _resolve_provider_model(provider, model)
+    if temperature is None:
+        temperature = llm_config.temperature
+    effective_max_tokens = max_tokens or llm_config.generate_max_tokens
+
+    if provider == "bedrock":
+        response = _get_bedrock().converse_stream(
+            **_bedrock_request(
+                system_prompt,
+                user_prompt,
+                model,
+                temperature=temperature,
+                max_tokens=effective_max_tokens,
+            )
+        )
+        for event in response["stream"]:
+            delta = event.get("contentBlockDelta", {}).get("delta", {}).get("text")
+            if delta:
+                yield delta
+        return
+
+    if provider == "openai":
+        stream = _get_openai().chat.completions.create(
+            model=model,
+            temperature=temperature,
+            max_tokens=effective_max_tokens,
+            stream=True,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        for event in stream:
+            delta = event.choices[0].delta.content
+            if delta:
+                yield delta
+        return
+
+    # Anthropic direct SDK는 현재 동기 경로만 유지합니다. 스트림 API가 필요하면 provider 레이어에서 확장합니다.
+    yield _call_llm(
+        system_prompt,
+        user_prompt,
+        provider=provider,
+        model=model,
+        temperature=temperature,
+        max_tokens=effective_max_tokens,
+    )
 
 
 # ──────────────────────────────────────────────
@@ -123,8 +240,9 @@ def extract_json(
 ) -> dict:
     """선택된 chunk들에서 핵심 팩트를 JSON으로 추출 (1차 LLM)"""
     texts = "\n\n---\n\n".join(
-        f"[{c.get('source', '')} | {c.get('date', '')}] {c['original_text']}"
-        for c in chunks
+        f"[{c.get('source', '')} | {c.get('date', '')}] {c.get('title', '')}\n"
+        f"{_truncate_ref_body(c.get('original_text', ''), _extract_limit_for(i))}"
+        for i, c in enumerate(chunks)
     )
 
     user_prompt = f"""Extract information from the text below and output as JSON.
@@ -137,17 +255,16 @@ Text:
 
     result = _call_llm(
         EXTRACT_SYSTEM, user_prompt,
-        provider=provider, model=model, temperature=EXTRACT_TEMP,
+        provider=provider,
+        model=model,
+        temperature=EXTRACT_TEMP,
+        max_tokens=llm_config.extract_max_tokens,
     )
 
     # JSON 파싱 (재시도 포함)
     for attempt in range(3):
         try:
-            cleaned = result.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1]
-                cleaned = cleaned.rsplit("```", 1)[0]
-            return json.loads(cleaned)
+            return _parse_json_object(result)
         except json.JSONDecodeError:
             if attempt < 2:
                 result = _call_llm(
@@ -156,9 +273,43 @@ Text:
                     provider=provider,
                     model=model,
                     temperature=EXTRACT_TEMP,
+                    max_tokens=llm_config.extract_max_tokens,
                 )
 
-    raise RuntimeError("JSON 파싱 3회 실패")
+    fallback = _fallback_extracted_json(chunks)
+    fallback["_warning"] = "LLM JSON 파싱 실패로 로컬 fallback 사용"
+    return fallback
+
+
+def _parse_json_object(result: str) -> dict:
+    cleaned = result.strip()
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        cleaned = fenced.group(1)
+    else:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            cleaned = cleaned[start:end + 1]
+    parsed = json.loads(cleaned)
+    if not isinstance(parsed, dict):
+        raise json.JSONDecodeError("JSON object expected", cleaned, 0)
+    return parsed
+
+
+def _fallback_extracted_json(chunks: list[dict]) -> dict:
+    main = chunks[0] if chunks else {}
+    text = main.get("original_text", "") or ""
+    numbers = ", ".join(re.findall(r"[0-9][0-9,]*(?:\.[0-9]+)?\s*(?:명|건|%|원|억원|조원|일|년|월|회|개|곳)?", text)[:8])
+    return {
+        "who": main.get("source") or None,
+        "policy": main.get("title") or None,
+        "decision": (text[:220].rstrip() + "...") if len(text) > 220 else text,
+        "target": None,
+        "numbers": numbers or None,
+        "origin": None,
+        "effect": None,
+    }
 
 
 # ──────────────────────────────────────────────
@@ -170,7 +321,9 @@ ARTICLE_SYSTEM = """You are a professional Korean news reporter writing breaking
 WRITING APPROACH:
 - Center the article on the core facts from the extracted JSON
 - Enrich with background, context, and concrete details from the reference sources
-- Length: 600-900 Korean characters in body, 3-5 paragraphs
+- Length: 1,400-2,200 Korean characters in body when the supplied sources
+  contain enough factual material. Write 6-8 paragraphs for normal policy,
+  institution, labor, and analysis articles.
 
 GENRE IDENTIFICATION (run FIRST, before composing):
 Identify the genre of the MAIN press release and write accordingly. Mixing
@@ -187,8 +340,11 @@ PARAGRAPH STRUCTURE:
   in 제목, then a lead containing 누가·언제·무엇 compressed into 1-2 sentences
   (around 80 chars each). Every article MUST start with a clear lead before
   any other content. No exceptions.
-- Paragraphs 2-3: Specific numbers, details, background. Each paragraph should cite at least one reference with [n] marker when possible
-- Final paragraph: Significance or impact, written as established facts (no speculation)
+- Paragraphs 2-6: Specific numbers, details, quotations, background, and
+  stakeholder context. Each paragraph MUST end with at least one [n] marker
+  indicating the source used for that paragraph.
+- Final paragraph: Significance or impact, written as established facts
+  with a source marker. No speculation.
 
 NAMING CONVENTIONS (mandatory):
 - On first mention, write each institution and person in FULL formal name.
@@ -216,19 +372,23 @@ MAIN DOMINANCE (preferred, NOT a quota to pad):
   findings in 1-2 sentences as supporting context.
 
 CRITICAL — when MAIN material is insufficient:
-- If the MAIN source does not provide enough material for a 600-character body,
-  WRITE A SHORTER BODY. 400-500 chars is acceptable.
-- 3-4 paragraphs is acceptable if MAIN cannot support 5.
-- PADDING WITH INVENTED DETAILS TO REACH 60% OR 600 CHARS IS THE WORST
+- If the MAIN source and references do not provide enough material for a
+  1,400-character body, WRITE A SHORTER BODY. 700-1,000 chars is acceptable.
+- 4-5 paragraphs is acceptable if the sources cannot support 6-8.
+- PADDING WITH INVENTED DETAILS TO REACH 60% OR THE TARGET LENGTH IS THE WORST
   POSSIBLE ERROR. A shorter, honest article is always better than a longer
   article with invented padding.
-- The 600-character minimum and the 60% dominance rule BOTH bend before
+- The target length and the 60% dominance rule BOTH bend before
   fabrication. Never invent to satisfy either.
 
 SOURCE ROLES (critical):
 - Main press release = source of CORE FACTS (decisions, policies, figures, dates)
 - Reference articles = source of BACKGROUND, CONTEXT, and connections to related events
-- When citing facts from reference articles, append [n] markers at the END of the sentence
+- When citing facts from any source, append [n] markers at the END of the
+  sentence or paragraph. Use [1] for the main press release and [2], [3]...
+  for reference articles in the order listed below.
+- Every body paragraph must contain at least one [n] marker so the frontend
+  can show the source tooltip.
 - The main press release's conclusion must remain the central axis of the article
 
 KOREAN NEWS STYLE (strict):
@@ -289,7 +449,7 @@ you intend to include:
    this exact item?"
 5. If you cannot answer for any item, DELETE the sentence (do not soften it,
    do not paraphrase it — delete it entirely).
-6. If deletion shortens the body below 600 chars, that is acceptable. Refer
+6. If deletion shortens the body below the target length, that is acceptable. Refer
    to the MAIN DOMINANCE section above — shorter is always better than invented.
 
 OUTPUT FORMAT (write the content in Korean, keep these Korean labels exactly):
@@ -322,8 +482,11 @@ criticism. Your writing should be indistinguishable from articles by reporters
 WRITING APPROACH:
 - Center the article on the core facts from the extracted JSON
 - Enrich with direct quotes from named institutions, unions, and civic groups
-- Length: 600-900 Korean characters in body, 3-5 paragraphs
-- If MAIN material is insufficient for 600 chars, write a SHORTER body. Never pad.
+- Length: 1,400-2,200 Korean characters in body when the supplied sources
+  contain enough factual material. Write 6-8 paragraphs for normal policy,
+  public broadcasting, labor, and analysis articles.
+- If MAIN material and references are insufficient for the target length,
+  write a SHORTER body. Never pad.
 
 GENRE IDENTIFICATION (run FIRST, before composing):
 Identify the genre of the MAIN press release. Even in 미디어스 voice, genre
@@ -387,7 +550,15 @@ BODY STRUCTURE (recommended):
 2. 둘째 단락: 직접·간접 인용 (존댓말체 종결)
 3. 셋째 단락: 배경·수치·맥락 (단언체)
 4. 넷째 단락: 추가 인용 또는 진영별 입장 정리
-5. (옵션) 다섯째: 평가·관전 포인트
+5. 다섯째: 참고기사에서 확인한 관련 사건·유사 사례
+6. 여섯째 이후: 평가·관전 포인트 또는 제도적 쟁점
+
+SOURCE MARKERS:
+- Every body paragraph MUST end with at least one [n] marker.
+- Use [1] for the main press release and [2], [3]... for reference articles
+  in the order listed below.
+- If a paragraph combines main and reference facts, use multiple markers
+  such as [1][3].
 
 QUOTATION EMPHASIS (very important):
 - Direct quotes from named entities are CENTRAL to mediaus style.
@@ -428,13 +599,24 @@ def _truncate_ref_body(text: str, max_chars: int | None) -> str:
     return text[:max_chars].rstrip() + "..."
 
 
+def _extract_limit_for(index: int) -> int:
+    """Use more main-source context and shorter reference context for fast extraction."""
+    return llm_config.extract_main_max_chars if index == 0 else llm_config.extract_ref_max_chars
+
+
+def _generate_limit_for(index: int, override: int | None) -> int:
+    if override is not None:
+        return override
+    return llm_config.generate_main_max_chars if index == 0 else llm_config.generate_ref_max_chars
+
+
 def generate_article(
     extracted_json: dict,
     chunks: list[dict],
     *,
     provider: str | None = None,
     model: str | None = None,
-    ref_body_max_chars: int | None = 300,
+    ref_body_max_chars: int | None = None,
     style: str | None = None,
 ) -> dict:
     """JSON + 참고 chunk로 속보기사 생성 (2차 LLM).
@@ -456,11 +638,18 @@ def generate_article(
 
     chunk_refs = "\n\n".join(
         f"[{i+1}] [{c.get('source', '')} | {c.get('date', '')}] {c.get('title', '')}\n"
-        f"Body: {_truncate_ref_body(c.get('original_text', ''), ref_body_max_chars)}"
+        f"Body: {_truncate_ref_body(c.get('original_text', ''), _generate_limit_for(i, ref_body_max_chars))}"
         for i, c in enumerate(chunks)
     )
 
     user_prompt = f"""Write a Korean breaking news article based on the JSON below.
+
+Writing requirements:
+- Target body length: 1,400-2,200 Korean characters when the listed sources
+  contain enough facts.
+- Write 6-8 body paragraphs for normal policy/institution/labor articles.
+- End every body paragraph with at least one citation marker like [1] or [2].
+- Do not invent facts to satisfy length. If sources are thin, write shorter.
 
 Extracted JSON:
 {json.dumps(extracted_json, ensure_ascii=False, indent=2)}
@@ -470,10 +659,59 @@ Reference sources:
 
     result = _call_llm(
         system_prompt, user_prompt,
-        provider=provider, model=model, temperature=GENERATE_TEMP,
+        provider=provider,
+        model=model,
+        temperature=GENERATE_TEMP,
+        max_tokens=llm_config.generate_max_tokens,
     )
 
     # genre는 메타필드. 프론트엔 안 노출, 디버깅·분석용.
+    return parse_article_text(result)
+
+
+def stream_generate_article_text(
+    extracted_json: dict,
+    chunks: list[dict],
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+    ref_body_max_chars: int | None = None,
+    style: str | None = None,
+) -> Iterator[str]:
+    """기사 생성 원문을 token delta 단위로 stream."""
+    effective_style = (style or llm_config.article_style or "default").lower()
+    system_prompt = ARTICLE_SYSTEM_MEDIAUS if effective_style == "mediaus" else ARTICLE_SYSTEM
+    chunk_refs = "\n\n".join(
+        f"[{i+1}] [{c.get('source', '')} | {c.get('date', '')}] {c.get('title', '')}\n"
+        f"Body: {_truncate_ref_body(c.get('original_text', ''), _generate_limit_for(i, ref_body_max_chars))}"
+        for i, c in enumerate(chunks)
+    )
+    user_prompt = f"""Write a Korean breaking news article based on the JSON below.
+
+Writing requirements:
+- Target body length: 1,400-2,200 Korean characters when the listed sources
+  contain enough facts.
+- Write 6-8 body paragraphs for normal policy/institution/labor articles.
+- End every body paragraph with at least one citation marker like [1] or [2].
+- Do not invent facts to satisfy length. If sources are thin, write shorter.
+
+Extracted JSON:
+{json.dumps(extracted_json, ensure_ascii=False, indent=2)}
+
+Reference sources:
+{chunk_refs}"""
+    yield from _stream_llm(
+        system_prompt,
+        user_prompt,
+        provider=provider,
+        model=model,
+        temperature=GENERATE_TEMP,
+        max_tokens=llm_config.generate_max_tokens,
+    )
+
+
+def parse_article_text(result: str) -> dict:
+    """LLM 원문 출력에서 제목/리드/본문 블록을 파싱."""
     article = {"genre": "", "title": "", "lead": "", "body": ""}
     lines = result.strip().split("\n")
     current = None

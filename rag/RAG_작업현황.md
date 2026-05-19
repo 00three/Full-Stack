@@ -96,7 +96,7 @@ cd frontend && npm install && npm run dev
 1. HWP는 PrvText 미리보기만 추출 (실본문 누락 가능)
 2. 첨부파일 1개만 추출 (PDF > DOCX > HWPX > HWP 우선순위)
 3. 표 데이터 별도 추출 안 됨 (텍스트로 평탄화)
-4. 같은 보도자료가 다른 URL로 두 번 수집되어 doc_id만 다른 케이스 존재 — 백엔드에서 `DISTINCT ON (title, source, date)`로 우회
+4. 기존 샘플 JSONL에는 중복이 남아 있으나, 신규 크롤러는 회차별 batch + canonical URL + 안정 ID로 방지
 
 ---
 
@@ -104,7 +104,7 @@ cd frontend && npm install && npm run dev
 
 ### 즉시
 - [ ] LLM 프롬프트 강화: 출처 마커 `[1]` 누락·추측성 표현 잡기
-- [ ] DB 컬럼 누락 검증: 풀 ingest 후 raw_documents가 220건만 있는 이유 (340 → 220 차이) 점검
+- [x] `340 → 220` 차이 원인 확인: 일자별 append JSONL 중복 + KCC `jsessionid` URL 변형
 
 ### 백엔드 연동 후
 - [ ] AWS RDS 마이그레이션 (백엔드 팀원, 동일 schema.sql 재실행)

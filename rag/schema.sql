@@ -21,7 +21,10 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid() 제공
 CREATE TABLE IF NOT EXISTS raw_documents (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     doc_id          VARCHAR(255) NOT NULL UNIQUE,       -- 크롤러 doc_id (멱등 INSERT 키)
-    source          VARCHAR(20)  NOT NULL,               -- KCC | NSP | MBC | NODONG (ingest에서 정규화)
+    source          VARCHAR(255) NOT NULL,               -- KCC | NSP | MBC | NODONG | 외부 참고기사 출처
+    document_kind   VARCHAR(32) NOT NULL DEFAULT 'press_release'
+                    CHECK (document_kind IN ('press_release', 'reference_article')),
+    parent_doc_id   VARCHAR(255),
     department      VARCHAR(255),
     author          VARCHAR(255),
     title           VARCHAR(500) NOT NULL,
@@ -45,8 +48,8 @@ CREATE TABLE IF NOT EXISTS raw_documents (
 CREATE TABLE IF NOT EXISTS documents (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     raw_document_id  UUID NOT NULL REFERENCES raw_documents(id) ON DELETE CASCADE,
-    chunk_id         VARCHAR(64) NOT NULL UNIQUE,        -- 예: KCC_20260318_001
-    source           VARCHAR(20) NOT NULL,
+    chunk_id         VARCHAR(64) NOT NULL UNIQUE,        -- 예: kcc_20260318_ab12cd34_001
+    source           VARCHAR(255) NOT NULL,
     date             DATE,
     title            VARCHAR(500),
     data_type        VARCHAR(20) NOT NULL
@@ -85,8 +88,13 @@ CREATE TABLE IF NOT EXISTS generated_articles (
     lead                TEXT,
     body                TEXT NOT NULL,
     source_mapping      JSONB NOT NULL DEFAULT '{}'::jsonb,  -- 문장별 chunk_id 매핑
+    source_release_ids  JSONB NOT NULL DEFAULT '[]'::jsonb,  -- 선택된 보도자료 doc_id 목록
     selected_chunk_ids  JSONB NOT NULL DEFAULT '[]'::jsonb,  -- 기자가 선택한 참고자료
+    citations           JSONB NOT NULL DEFAULT '{}'::jsonb,  -- 본문 인용 메타데이터
     extracted_json      JSONB,                                -- 1차 LLM JSON 결과
+    llm_provider        VARCHAR(32),                          -- bedrock | openai | anthropic
+    llm_model_id        VARCHAR(255),                         -- 실제 호출 modelId
+    article_style       VARCHAR(32),                          -- default | mediaus
     status              VARCHAR(20) NOT NULL DEFAULT 'draft'
                         CHECK (status IN ('draft', 'saved', 'published')),
     created_by          VARCHAR(64),                          -- 기자 ID
@@ -96,6 +104,29 @@ CREATE TABLE IF NOT EXISTS generated_articles (
 
 CREATE INDEX IF NOT EXISTS idx_articles_raw_doc
     ON generated_articles(raw_document_id);
+
+-- 기존 로컬 DB 업그레이드용 idempotent migration
+ALTER TABLE raw_documents
+    ADD COLUMN IF NOT EXISTS document_kind VARCHAR(32) NOT NULL DEFAULT 'press_release';
+ALTER TABLE raw_documents
+    ADD COLUMN IF NOT EXISTS parent_doc_id VARCHAR(255);
+ALTER TABLE raw_documents
+    ALTER COLUMN source TYPE VARCHAR(255);
+ALTER TABLE documents
+    ALTER COLUMN source TYPE VARCHAR(255);
+ALTER TABLE generated_articles
+    ADD COLUMN IF NOT EXISTS source_release_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE generated_articles
+    ADD COLUMN IF NOT EXISTS citations JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE generated_articles
+    ADD COLUMN IF NOT EXISTS llm_provider VARCHAR(32);
+ALTER TABLE generated_articles
+    ADD COLUMN IF NOT EXISTS llm_model_id VARCHAR(255);
+ALTER TABLE generated_articles
+    ADD COLUMN IF NOT EXISTS article_style VARCHAR(32);
+
+CREATE INDEX IF NOT EXISTS idx_raw_documents_kind
+    ON raw_documents(document_kind);
 
 
 -- =========================================================

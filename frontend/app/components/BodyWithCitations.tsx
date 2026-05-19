@@ -8,9 +8,17 @@ interface Props {
   body: string;
   citations: Record<string, Citation>;
   className?: string;
+  fallbackCitationId?: string;
+  appendFallbackWhenUncited?: boolean;
 }
 
-export function BodyWithCitations({ body, citations, className }: Props) {
+export function BodyWithCitations({
+  body,
+  citations,
+  className,
+  fallbackCitationId = '1',
+  appendFallbackWhenUncited = false,
+}: Props) {
   if (!body) return null;
 
   const hasCitations = Object.keys(citations).length > 0;
@@ -22,35 +30,56 @@ export function BodyWithCitations({ body, citations, className }: Props) {
     return <div className={baseClass}>{body}</div>;
   }
 
-  const parts = body.split(/(\[\d+\])/g);
+  const fallbackCitation = citations[fallbackCitationId];
+  const paragraphs = body.split(/\n+/).filter((paragraph) => paragraph.trim().length > 0);
+
+  const renderCitationParts = (text: string, keyPrefix: string) =>
+    text.split(/(\[\d+\])/g).map((part, i) => {
+      const match = part.match(/^\[(\d+)\]$/);
+      if (match) {
+        const id = match[1];
+        const cite = citations[id];
+        if (!cite) return <span key={`${keyPrefix}-${i}`}>{part}</span>;
+        return <CitationIcon key={`${keyPrefix}-${i}-${id}`} citation={cite} />;
+      }
+      return <span key={`${keyPrefix}-${i}`}>{part}</span>;
+    });
 
   return (
     <div className={baseClass}>
-      {parts.map((part, i) => {
-        const match = part.match(/^\[(\d+)\]$/);
-        if (match) {
-          const id = match[1];
-          const cite = citations[id];
-          if (!cite) return <span key={i}>{part}</span>;
-          return <CitationIcon key={`${i}-${id}`} citation={cite} />;
-        }
-        return <span key={i}>{part}</span>;
+      {paragraphs.map((paragraph, idx) => {
+        const hasParagraphCitation = /\[\d+\]/.test(paragraph);
+        return (
+          <p key={idx} className={idx === 0 ? '' : 'mt-4'}>
+            {renderCitationParts(paragraph, `p-${idx}`)}
+            {appendFallbackWhenUncited && !hasParagraphCitation && fallbackCitation && (
+              <CitationIcon citation={fallbackCitation} className="ml-2" />
+            )}
+          </p>
+        );
       })}
     </div>
   );
 }
 
-function CitationIcon({ citation }: { citation: Citation }) {
+function CitationIcon({
+  citation,
+  className = 'ml-0.5',
+}: {
+  citation: Citation;
+  className?: string;
+}) {
   const [showTooltip, setShowTooltip] = useState(false);
 
   return (
     <span className="relative inline-flex align-middle">
       <span
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-white/20 text-white cursor-help ml-0.5 hover:bg-white/40 transition-colors"
+        className={`inline-flex items-center justify-center w-5 h-5 rounded-full border border-white/25 bg-white/10 text-white/85 cursor-help hover:bg-white/25 hover:text-white transition-colors ${className}`}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
+        aria-label={`${citation.category} 출처 정보`}
       >
-        <Info className="w-2.5 h-2.5" strokeWidth={2.5} />
+        <Info className="w-3 h-3" strokeWidth={2.5} />
       </span>
       {showTooltip && (
         <div

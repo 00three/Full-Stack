@@ -26,10 +26,12 @@ def get_connection():
 def dense_search(query_embedding: list[float], top_k: int = 50) -> list[dict]:
     """query 임베딩으로 pgvector에서 코사인 유사도 검색"""
     sql = """
-        SELECT id, chunk_id, source, date, title, original_text, full_text,
-               1 - (embedding_dense <=> %s::vector) AS score
-        FROM documents
-        ORDER BY embedding_dense <=> %s::vector
+        SELECT d.id, d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
+               d.raw_document_id, rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
+               1 - (d.embedding_dense <=> %s::vector) AS score
+        FROM documents d
+        JOIN raw_documents rd ON rd.id = d.raw_document_id
+        ORDER BY d.embedding_dense <=> %s::vector
         LIMIT %s
     """
     conn = get_connection()
@@ -49,10 +51,12 @@ def dense_search(query_embedding: list[float], top_k: int = 50) -> list[dict]:
 def keyword_search(query_text: str, top_k: int = 50) -> list[dict]:
     """PostgreSQL tsvector 기반 키워드 검색"""
     sql = """
-        SELECT id, chunk_id, source, date, title, original_text, full_text,
-               ts_rank(to_tsvector('simple', full_text), plainto_tsquery('simple', %s)) AS score
-        FROM documents
-        WHERE to_tsvector('simple', full_text) @@ plainto_tsquery('simple', %s)
+        SELECT d.id, d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
+               d.raw_document_id, rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
+               ts_rank(to_tsvector('simple', d.full_text), plainto_tsquery('simple', %s)) AS score
+        FROM documents d
+        JOIN raw_documents rd ON rd.id = d.raw_document_id
+        WHERE to_tsvector('simple', d.full_text) @@ plainto_tsquery('simple', %s)
         ORDER BY score DESC
         LIMIT %s
     """
@@ -113,6 +117,10 @@ def apply_time_decay(results: list[dict], reference_date: date | None = None) ->
 
     for doc in results:
         doc_date = doc["date"]
+        if not doc_date:
+            doc["time_weight"] = 1.0
+            doc["final_score"] = doc["rrf_score"]
+            continue
         if isinstance(doc_date, str):
             doc_date = datetime.strptime(doc_date, "%Y-%m-%d").date()
 
@@ -157,7 +165,12 @@ def rerank(query_text: str, results: list[dict]) -> list[dict]:
 # 6. 통합 검색 (전체 파이프라인)
 # ──────────────────────────────────────────────
 
-def hybrid_search(query_text: str, query_embedding: list[float]) -> list[dict]:
+def hybrid_search(
+    query_text: str,
+    query_embedding: list[float],
+    *,
+    use_rerank: bool = True,
+) -> list[dict]:
     """
     전체 검색 파이프라인:
     dense + keyword → RRF(30개) → 시간 가중치(15개) → Re-ranking(10개)
@@ -167,6 +180,11 @@ def hybrid_search(query_text: str, query_embedding: list[float]) -> list[dict]:
 
     fused = rrf_fusion(dense_results, kw_results)
     decayed = apply_time_decay(fused)
+    if not use_rerank:
+        for doc in decayed:
+            doc["rerank_score"] = doc.get("final_score", doc.get("rrf_score", 0))
+        return decayed[: search_config.final_results]
+
     final = rerank(query_text, decayed)
 
     return final

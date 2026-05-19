@@ -70,10 +70,7 @@ def get_related_articles_batch(
             seen.add(cid)
             merged_related.append(c)
 
-    # 마지막 보도자료 기준으로 핵심 JSON 추출
-    json_data = gen.extract_only(last_release) if last_release else _empty_json()
-
-    return {"related": merged_related, "json": json_data}
+    return {"related": merged_related, "json": _empty_json()}
 
 
 @router.get("/related-articles/{article_id}")
@@ -105,8 +102,7 @@ def get_related_articles(
         source_release_source=pr.get("source", ""),
         source_release_date=pr.get("date", ""),
     )
-    json_data = gen.extract_only(pr)
-    return {"related": related, "json": json_data}
+    return {"related": related, "json": _empty_json()}
 
 
 @router.get("/{release_id}")

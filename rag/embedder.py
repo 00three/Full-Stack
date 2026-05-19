@@ -10,6 +10,8 @@ BGEEmbedder는 싱글톤 + lazy load. 첫 호출 시 모델 ~2GB 다운로드 (H
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 
@@ -66,6 +68,14 @@ class BGEEmbedder:
 
         from FlagEmbedding import BGEM3FlagModel
         import torch
+
+        torch_threads = int(os.getenv("PYTORCH_NUM_THREADS", os.getenv("TORCH_NUM_THREADS", "4")))
+        if torch_threads > 0:
+            torch.set_num_threads(torch_threads)
+            try:
+                torch.set_num_interop_threads(max(1, min(2, torch_threads)))
+            except RuntimeError:
+                pass
 
         # fp16은 CUDA에서만 안전 (Mac MPS/CPU는 fp32)
         use_fp16 = torch.cuda.is_available()
