@@ -22,10 +22,11 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   transpilePackages: ['motion'],
   async rewrites() {
+    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'https://52-78-196-15.sslip.io';
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.BACKEND_INTERNAL_URL || 'http://localhost:8000'}/:path*`,
+        destination: `${backendUrl}/:path*`,
       },
     ];
   },
