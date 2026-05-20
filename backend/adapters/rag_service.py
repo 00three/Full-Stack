@@ -16,7 +16,8 @@ from rag.search import hybrid_search
 
 _RELATED_QUERY_MAX_CHARS = 1200
 _RELATED_MAX_TERMS = 6
-_RELATED_USE_VECTOR = os.getenv("RELATED_SEARCH_USE_VECTOR", "0") == "1"
+# 기본값 벡터 하이브리드 검색 ON. 키워드 매칭만 쓰려면 RELATED_SEARCH_USE_VECTOR=0
+_RELATED_USE_VECTOR = os.getenv("RELATED_SEARCH_USE_VECTOR", "1") == "1"
 _TERM_RE = re.compile(r"[0-9A-Za-z가-힣]{2,}")
 _STOP_TERMS = {
     "방송",
