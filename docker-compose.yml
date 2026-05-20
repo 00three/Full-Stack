@@ -20,8 +20,13 @@ services:
     build:
       context: ${CRAWLER_CONTEXT:-../Crawler}
       dockerfile: Dockerfile
+    command:
+      - sh
+      - -lc
+      - python main.py --mode schedule --interval "$${CRAWLER_INTERVAL_MINUTES:-10}" --limit "$${CRAWLER_LIMIT:-10}"
     environment:
       CRAWLER_INTERVAL_MINUTES: ${CRAWLER_INTERVAL_MINUTES:-10}
+      CRAWLER_LIMIT: ${CRAWLER_LIMIT:-10}
       CRAWLER_OUTBOX_DIR: ${CRAWLER_OUTBOX_DIR:-/shared/outbox}
     volumes:
       - crawler-shared:/shared
