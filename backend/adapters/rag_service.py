@@ -72,15 +72,20 @@ class DBRAGService:
         max_results: int = 10,
     ) -> list[dict]:
         """
-        query_text로 관련 chunk 검색 → 같은 (source, title, date) 보도자료당
-        가장 높은 점수의 chunk 1개만 남겨서 frontend 포맷으로 반환.
-        메인 보도자료 자기 자신은 결과에서 제외 (self-retrieval 방지).
-        detail_url(원문 링크)도 함께 반환.
+        선택된 보도자료(source_release_id)에 크롤러가 parent_doc_id로
+        연결해 둔 참고기사(reference_article)를 반환한다.
+        같은 (source, title, date) 기사당 chunk 1개만 남겨 frontend 포맷으로 반환.
+        source_release_id가 없을 때만 글로벌 유사도 검색으로 폴백한다.
         """
-        if not query_text or not query_text.strip():
+        # 크롤러가 parent_doc_id로 연결해 둔 참고기사를 우선 사용한다.
+        # 글로벌 유사도 검색은 보도자료 종류·소속을 구분하지 못해
+        # 다른 보도자료를 "참고기사"로 끌어오므로, source_release_id가
+        # 있으면 해당 보도자료에 매핑된 reference_article만 반환한다.
+        if source_release_id:
+            results = self._linked_references(source_release_id)
+        elif not query_text or not query_text.strip():
             return []
-
-        if not _RELATED_USE_VECTOR:
+        elif not _RELATED_USE_VECTOR:
             results = self._fast_keyword_related(
                 query_text=query_text,
                 source_release_id=source_release_id,
@@ -98,6 +103,27 @@ class DBRAGService:
             source_release_date=source_release_date,
             max_results=max_results,
         )
+
+    def _linked_references(self, source_release_id: str) -> list[dict]:
+        """크롤러가 parent_doc_id로 연결해 둔 참고기사 chunk를 조회한다.
+
+        글로벌 유사도 검색과 달리, 선택된 보도자료에 실제로 매핑된
+        reference_article만 반환하므로 다른 보도자료가 섞이지 않는다.
+        """
+        sql = """
+            SELECT d.id, d.chunk_id, d.source, d.date, d.title,
+                   d.original_text, d.full_text, d.raw_document_id,
+                   rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url
+            FROM documents d
+            JOIN raw_documents rd ON rd.id = d.raw_document_id
+            WHERE rd.document_kind = 'reference_article'
+              AND rd.parent_doc_id = %s
+            ORDER BY d.date DESC NULLS LAST, d.chunk_id
+        """
+        with _connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, (source_release_id,))
+                return list(cur.fetchall())
 
     def _vector_related(self, query_text: str) -> list[dict]:
         compact_query = _compact_related_query(query_text)
