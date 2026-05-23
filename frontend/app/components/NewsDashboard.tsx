@@ -1018,7 +1018,7 @@ export default function NewsDashboard() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 relative z-10 pt-3 border-t border-white/10">
+                <div className="relative z-10 space-y-4 pt-3 border-t border-white/10">
                   <label className="space-y-2">
                     <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
                       생성 모델
@@ -1036,38 +1036,36 @@ export default function NewsDashboard() {
                     </select>
                   </label>
 
-                  <div className="space-y-4">
-                    <label className="block space-y-2">
-                      <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
-                        기사 스타일
-                      </span>
-                      <select
-                        value={articleStyle}
-                        onChange={(e) => setArticleStyle(e.target.value as ArticleStyle)}
-                        className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
-                      >
-                        <option value="default" className="bg-[#101010]">일반 뉴스</option>
-                        <option value="mediaus" className="bg-[#101010]">미디어스 스타일</option>
-                      </select>
-                    </label>
+                  <label className="block space-y-2">
+                    <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
+                      기사 스타일
+                    </span>
+                    <select
+                      value={articleStyle}
+                      onChange={(e) => setArticleStyle(e.target.value as ArticleStyle)}
+                      className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
+                    >
+                      <option value="default" className="bg-[#101010]">일반 뉴스</option>
+                      <option value="mediaus" className="bg-[#101010]">미디어스 스타일</option>
+                    </select>
+                  </label>
 
-                    <label className="block space-y-2">
-                      <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
-                        말투
-                      </span>
-                      <select
-                        value={articleTone}
-                        onChange={(e) => setArticleTone(e.target.value as ArticleTone)}
-                        className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
-                      >
-                        {ARTICLE_TONE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value} className="bg-[#101010]">
-                            {option.label} - {option.description}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
+                  <label className="block space-y-2">
+                    <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
+                      말투
+                    </span>
+                    <select
+                      value={articleTone}
+                      onChange={(e) => setArticleTone(e.target.value as ArticleTone)}
+                      className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
+                    >
+                      {ARTICLE_TONE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value} className="bg-[#101010]">
+                          {option.label} - {option.description}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
 
                 {llmModelsError && (
