@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import {
   Search, RefreshCcw, ExternalLink,
-  ChevronRight, ArrowRight, Download, FileText,
+  ChevronRight, ArrowRight, Download,
   Info, CheckCircle2, X, Image as ImageIcon, Plus, Trash2
 } from 'lucide-react';
 import {
+  API_BASE,
   fetchPressReleases,
   fetchRelatedArticles,
   fetchLLMModels,
@@ -287,6 +288,13 @@ type InsertedArticleImage = ArticleImageAsset & {
   caption: string;
 };
 
+type ExportImageData = InsertedArticleImage & {
+  data: Uint8Array;
+  type: 'jpg' | 'png' | 'gif' | 'bmp';
+  width: number;
+  height: number;
+};
+
 const GENERATION_FLOW: GenerationStep[] = [
   { stage: 'extracting', message: '핵심 사실을 정리하는 중입니다.' },
   { stage: 'drafting', message: '기사 초안 생성을 요청했습니다.' },
@@ -342,6 +350,8 @@ export default function NewsDashboard() {
   const [detailPressRelease, setDetailPressRelease] = useState<PressRelease | null>(null);
   const [imagePlacement, setImagePlacement] = useState<ImagePlacement>('after-lead');
   const [insertedImages, setInsertedImages] = useState<InsertedArticleImage[]>([]);
+  const [isExportingWord, setIsExportingWord] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const stepRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const generationPreviewRef = useRef<HTMLPreElement | null>(null);
 
@@ -658,6 +668,223 @@ export default function NewsDashboard() {
       </figcaption>
     </figure>
   );
+
+  const imageTypeFromBlob = (blob: Blob, url: string): ExportImageData['type'] | null => {
+    const mime = blob.type.toLowerCase();
+    if (mime.includes('png')) return 'png';
+    if (mime.includes('gif')) return 'gif';
+    if (mime.includes('bmp')) return 'bmp';
+    if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+    const lowerUrl = url.toLowerCase();
+    if (lowerUrl.endsWith('.png')) return 'png';
+    if (lowerUrl.endsWith('.gif')) return 'gif';
+    if (lowerUrl.endsWith('.bmp')) return 'bmp';
+    if (lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg')) return 'jpg';
+    return null;
+  };
+
+  const getScaledImageSize = (blob: Blob): Promise<{ width: number; height: number }> =>
+    new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(blob);
+      const img = new window.Image();
+      img.onload = () => {
+        const maxWidth = 560;
+        const maxHeight = 360;
+        const ratio = Math.min(maxWidth / img.naturalWidth, maxHeight / img.naturalHeight, 1);
+        URL.revokeObjectURL(objectUrl);
+        resolve({
+          width: Math.max(1, Math.round(img.naturalWidth * ratio)),
+          height: Math.max(1, Math.round(img.naturalHeight * ratio)),
+        });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve({ width: 520, height: 300 });
+      };
+      img.src = objectUrl;
+    });
+
+  const fetchExportImage = async (image: InsertedArticleImage): Promise<ExportImageData | null> => {
+    try {
+      const response = await fetch(`${API_BASE}/assets/image-proxy?url=${encodeURIComponent(image.url)}`);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      const type = imageTypeFromBlob(blob, image.url);
+      if (!type) return null;
+      const [arrayBuffer, size] = await Promise.all([
+        blob.arrayBuffer(),
+        getScaledImageSize(blob),
+      ]);
+      return {
+        ...image,
+        type,
+        data: new Uint8Array(arrayBuffer),
+        width: size.width,
+        height: size.height,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const exportArticleToWord = async () => {
+    if (!generated) return;
+    setIsExportingWord(true);
+    setExportError(null);
+
+    try {
+      const {
+        AlignmentType,
+        Document,
+        HeadingLevel,
+        ImageRun,
+        Packer,
+        Paragraph,
+        TextRun,
+      } = await import('docx');
+
+      const exportImages = (await Promise.all(insertedImages.map(fetchExportImage))).filter(
+        (image): image is ExportImageData => Boolean(image),
+      );
+      const exportImagesFor = (placement: ImagePlacement) =>
+        exportImages.filter((image) => image.placement === placement);
+
+      const imageParagraphs = (images: ExportImageData[]) =>
+        images.flatMap((image) => [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 180, after: 80 },
+            children: [
+              new ImageRun({
+                type: image.type,
+                data: image.data,
+                transformation: { width: image.width, height: image.height },
+                altText: {
+                  title: image.title,
+                  description: image.title,
+                  name: image.caption,
+                },
+              }),
+            ],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 220 },
+            children: [
+              new TextRun({
+                text: `${image.caption} · ${image.title}`,
+                italics: true,
+                color: '666666',
+                size: 18,
+              }),
+            ],
+          }),
+        ]);
+
+      const bodyParagraphs = (generated.body ?? '')
+        .split(/\n+/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean);
+
+      const children = [
+        new Paragraph({
+          text: generated.title || '제목 없음',
+          heading: HeadingLevel.TITLE,
+          spacing: { after: 260 },
+        }),
+        new Paragraph({
+          spacing: { after: 240 },
+          children: [
+            new TextRun({
+              text: generated.lead || '',
+              bold: true,
+              color: 'C55A11',
+              size: 28,
+            }),
+          ],
+        }),
+        ...imageParagraphs(exportImagesFor('after-lead')),
+      ];
+
+      bodyParagraphs.forEach((paragraph, idx) => {
+        children.push(
+          new Paragraph({
+            spacing: { after: 220 },
+            children: [
+              new TextRun({
+                text: paragraph,
+                size: 24,
+              }),
+            ],
+          }),
+          ...imageParagraphs(exportImagesFor(`after-${idx}` as ImagePlacement)),
+        );
+      });
+
+      children.push(
+        new Paragraph({
+          text: '사용한 소스',
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 360, after: 160 },
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `[메인 보도자료] ${selectedPR?.source ?? ''} ${selectedPR?.date ?? ''} - ${selectedPR?.title ?? ''}`,
+              size: 20,
+            }),
+          ],
+          spacing: { after: 120 },
+        }),
+      );
+
+      selectedArticles.forEach((article, idx) => {
+        children.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `[관련기사 ${idx + 1}] ${article.source} ${article.date} - ${article.title}`,
+                size: 20,
+              }),
+            ],
+            spacing: { after: 120 },
+          }),
+        );
+      });
+
+      const doc = new Document({
+        sections: [
+          {
+            properties: {},
+            children,
+          },
+        ],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const filename = (generated.title || 'generated-article')
+        .replace(/[\\/:*?"<>|]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 80) || 'generated-article';
+      link.href = objectUrl;
+      link.download = `${filename}.docx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+
+      if (exportImages.length < insertedImages.length) {
+        setExportError(`이미지 ${insertedImages.length - exportImages.length}개는 원본 접근 제한으로 제외하고 내보냈습니다.`);
+      }
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Word 문서 내보내기에 실패했습니다.');
+    } finally {
+      setIsExportingWord(false);
+    }
+  };
 
   return (
     <section className="min-h-screen bg-bg text-ink pt-12 pb-24 px-4 sm:px-6 selection:bg-white/20 relative overflow-hidden">
@@ -1355,6 +1582,14 @@ export default function NewsDashboard() {
                     <span className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse" /> 에디토리얼 콘솔
                   </div>
                   <div className="flex gap-3 items-center">
+                    <button
+                      type="button"
+                      onClick={exportArticleToWord}
+                      disabled={!generated || isExportingWord}
+                      className="text-[9px] tracking-[0.2em] font-sans px-3 py-1.5 transition-all font-bold rounded-sm bg-white text-black hover:bg-white/90 border border-white/20 hover:border-transparent flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <Download className="w-3 h-3" /> {isExportingWord ? '내보내는 중' : '워드로 내보내기'}
+                    </button>
                     <button className="text-[9px] tracking-[0.2em] font-sans px-3 py-1.5 transition-all font-bold rounded-sm bg-white/10 text-white hover:bg-white hover:text-black border border-white/20 hover:border-transparent flex items-center gap-1.5">
                       <RefreshCcw className="w-3 h-3" /> 기사 재작성
                     </button>
@@ -1367,6 +1602,12 @@ export default function NewsDashboard() {
                     <div className="text-[8px] uppercase tracking-[0.2em] text-accent font-mono border border-white/10 px-2 py-1 bg-white/5 hidden sm:block rounded-sm">OOTHREE / V 1.0</div>
                   </div>
                 </div>
+
+                {exportError && (
+                  <div className="mb-4 rounded-sm border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-[11px] font-sans text-amber-100/85">
+                    {exportError}
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1,y:0}} transition={{delay:0.2}} className="space-y-1.5 group relative">
@@ -1533,22 +1774,6 @@ export default function NewsDashboard() {
                       </div>
                     </div>
                   )}
-                </div>
-
-                <div className="border border-white/10 bg-white/[0.02] p-5 space-y-3 backdrop-blur-md rounded-sm">
-                  <h4 className="text-[10px] tracking-[0.2em] text-accent border-b border-white/10 font-sans pb-3 mb-4 flex items-center gap-2">
-                    <Download className="w-3 h-3" /> 내보내기
-                  </h4>
-                  
-                  <button className="w-full flex items-center justify-between text-[10px] uppercase tracking-[0.1em] font-sans text-ink hover:text-black border border-white/20 p-4 hover:bg-white transition-all duration-300 group rounded-sm">
-                    Word 문서 (.docx) <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
-                  </button>
-                  <button className="w-full flex items-center justify-between text-[10px] uppercase tracking-[0.1em] font-sans text-ink hover:text-black border border-white/20 p-4 hover:bg-white transition-all duration-300 group rounded-sm">
-                    PDF 문서 (.pdf) <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
-                  </button>
-                  <button className="w-full flex items-center justify-between text-[10px] uppercase tracking-[0.1em] font-sans text-accent hover:text-ink hover:border-white/40 border border-transparent p-4 transition-all duration-300 mt-1 hover:bg-white/5 cursor-pointer rounded-sm">
-                    클립보드에 복사 <FileText className="w-3 h-3" />
-                  </button>
                 </div>
 
                 <div className="border border-white/10 bg-white/[0.02] p-5 space-y-4 backdrop-blur-md rounded-sm">

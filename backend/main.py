@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.deps import get_rag_service
-from backend.routers import articles, llm, press_releases
+from backend.routers import articles, assets, llm, press_releases
 
 app = FastAPI(title="속보생성 보조시스템 API")
 
@@ -19,6 +19,7 @@ app.add_middleware(
 app.include_router(press_releases.router)
 app.include_router(articles.router)
 app.include_router(llm.router)
+app.include_router(assets.router)
 
 
 @app.on_event("startup")
