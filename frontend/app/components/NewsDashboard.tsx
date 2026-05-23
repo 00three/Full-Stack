@@ -106,6 +106,16 @@ const SourceLogo = ({ source }: { source: string }) => {
       src: '/logos/maeilbiz.png',
       className: 'h-4 sm:h-5 max-w-[112px] sm:max-w-[132px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
       fallback: 'bg-white text-black px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
+    },
+    '창업일보': {
+      src: '/logos/startupilbo.png',
+      className: 'h-4 sm:h-5 max-w-[96px] sm:max-w-[112px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-white text-black px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
+    },
+    '글로벌이코노믹': {
+      src: '/logos/global-economic.png',
+      className: 'h-4 sm:h-5 max-w-[118px] sm:max-w-[138px] w-auto object-contain bg-white px-1.5 py-0.5 rounded-[1px]',
+      fallback: 'bg-white text-[#d4145a] px-1.5 py-0.5 font-bold text-[9px] rounded-sm'
     }
   };
 

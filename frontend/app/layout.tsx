@@ -15,8 +15,13 @@ const notoSerifKr = Noto_Serif_KR({
 });
 
 export const metadata: Metadata = {
-  title: 'AI Breaking News',
+  title: '속보 콘텐츠 자동 생성기',
   description: 'AI-generated breaking news dashboard',
+  icons: {
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
+    apple: '/favicon.png',
+  },
 };
 
 export default function RootLayout({children}: {children: React.ReactNode}) {

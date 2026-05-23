@@ -1,6 +1,6 @@
 {
-  "name": "AI Breaking News",
-  "description": "An interactive media artwork inspired AI breaking news generator",
+  "name": "속보 콘텐츠 자동 생성기",
+  "description": "AI breaking news content generator",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
