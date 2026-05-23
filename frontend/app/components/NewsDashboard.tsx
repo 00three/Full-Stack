@@ -683,6 +683,51 @@ export default function NewsDashboard() {
     return null;
   };
 
+  const stripCitationMarkers = (text: string) =>
+    text
+      .replace(/\s*\[\d+\]/g, '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+
+  const convertImageBlobToPng = (blob: Blob): Promise<Blob | null> =>
+    new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(blob);
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, img.naturalWidth || img.width);
+        canvas.height = Math.max(1, img.naturalHeight || img.height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          URL.revokeObjectURL(objectUrl);
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((pngBlob) => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(pngBlob);
+        }, 'image/png');
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(null);
+      };
+      img.src = objectUrl;
+    });
+
+  const normalizeImageBlobForWord = async (
+    blob: Blob,
+    url: string,
+  ): Promise<{ blob: Blob; type: ExportImageData['type'] } | null> => {
+    const nativeType = imageTypeFromBlob(blob, url);
+    if (nativeType) return { blob, type: nativeType };
+
+    const converted = await convertImageBlobToPng(blob);
+    if (!converted) return null;
+    return { blob: converted, type: 'png' };
+  };
+
   const getScaledImageSize = (blob: Blob): Promise<{ width: number; height: number }> =>
     new Promise((resolve) => {
       const objectUrl = URL.createObjectURL(blob);
@@ -705,26 +750,33 @@ export default function NewsDashboard() {
     });
 
   const fetchExportImage = async (image: InsertedArticleImage): Promise<ExportImageData | null> => {
-    try {
-      const response = await fetch(`${API_BASE}/assets/image-proxy?url=${encodeURIComponent(image.url)}`);
-      if (!response.ok) return null;
-      const blob = await response.blob();
-      const type = imageTypeFromBlob(blob, image.url);
-      if (!type) return null;
-      const [arrayBuffer, size] = await Promise.all([
-        blob.arrayBuffer(),
-        getScaledImageSize(blob),
-      ]);
-      return {
-        ...image,
-        type,
-        data: new Uint8Array(arrayBuffer),
-        width: size.width,
-        height: size.height,
-      };
-    } catch {
-      return null;
+    const apiBase = API_BASE.replace(/\/$/, '');
+    const proxyUrl = `${apiBase}/assets/image-proxy?url=${encodeURIComponent(image.url)}`;
+    const candidateUrls = image.url.startsWith('data:image/') ? [image.url] : [proxyUrl, image.url];
+
+    for (const url of candidateUrls) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) continue;
+        const fetchedBlob = await response.blob();
+        const normalized = await normalizeImageBlobForWord(fetchedBlob, image.url);
+        if (!normalized) continue;
+        const [arrayBuffer, size] = await Promise.all([
+          normalized.blob.arrayBuffer(),
+          getScaledImageSize(normalized.blob),
+        ]);
+        return {
+          ...image,
+          type: normalized.type,
+          data: new Uint8Array(arrayBuffer),
+          width: size.width,
+          height: size.height,
+        };
+      } catch {
+        // Try the next candidate. Remote article images often block direct browser fetches.
+      }
     }
+    return null;
   };
 
   const exportArticleToWord = async () => {
@@ -783,12 +835,12 @@ export default function NewsDashboard() {
 
       const bodyParagraphs = (generated.body ?? '')
         .split(/\n+/)
-        .map((paragraph) => paragraph.trim())
+        .map((paragraph) => stripCitationMarkers(paragraph))
         .filter(Boolean);
 
       const children = [
         new Paragraph({
-          text: generated.title || '제목 없음',
+          text: stripCitationMarkers(generated.title || '제목 없음'),
           heading: HeadingLevel.TITLE,
           spacing: { after: 260 },
         }),
@@ -796,7 +848,7 @@ export default function NewsDashboard() {
           spacing: { after: 240 },
           children: [
             new TextRun({
-              text: generated.lead || '',
+              text: stripCitationMarkers(generated.lead || ''),
               bold: true,
               color: 'C55A11',
               size: 28,
@@ -830,7 +882,7 @@ export default function NewsDashboard() {
         new Paragraph({
           children: [
             new TextRun({
-              text: `[메인 보도자료] ${selectedPR?.source ?? ''} ${selectedPR?.date ?? ''} - ${selectedPR?.title ?? ''}`,
+              text: `메인 보도자료: ${selectedPR?.source ?? ''} ${selectedPR?.date ?? ''} - ${selectedPR?.title ?? ''}`,
               size: 20,
             }),
           ],
@@ -843,7 +895,7 @@ export default function NewsDashboard() {
           new Paragraph({
             children: [
               new TextRun({
-                text: `[관련기사 ${idx + 1}] ${article.source} ${article.date} - ${article.title}`,
+                text: `관련기사 ${idx + 1}: ${article.source} ${article.date} - ${article.title}`,
                 size: 20,
               }),
             ],
