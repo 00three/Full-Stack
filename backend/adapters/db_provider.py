@@ -59,22 +59,30 @@ class DBPressReleaseProvider:
             where = "WHERE document_kind = 'press_release'"
 
         # DISTINCT ON으로 (title, source, date) 동일한 중복 행 제거.
-        # 크롤러가 같은 보도자료를 여러 URL로 수집해 doc_id만 다른 케이스가 있어서.
+        # 같은 보도자료가 공백/언더스코어 doc_id로 중복 수집된 경우에는
+        # reference_article이 연결된 행을 우선 노출해야 관련기사 매핑이 살아난다.
         sql = f"""
             SELECT * FROM (
-                SELECT DISTINCT ON (title, source, date)
-                    doc_id,
-                    source,
-                    title,
-                    date,
-                    summary,
-                    content_text,
-                    detail_url,
-                    image_urls,
-                    crawled_at
-                FROM raw_documents
+                SELECT DISTINCT ON (rd.title, rd.source, rd.date)
+                    rd.doc_id,
+                    rd.source,
+                    rd.title,
+                    rd.date,
+                    rd.summary,
+                    rd.content_text,
+                    rd.detail_url,
+                    rd.image_urls,
+                    rd.crawled_at,
+                    refs.ref_count
+                FROM raw_documents rd
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS ref_count
+                    FROM raw_documents ref
+                    WHERE ref.document_kind = 'reference_article'
+                      AND ref.parent_doc_id = rd.doc_id
+                ) refs ON TRUE
                 {where}
-                ORDER BY title, source, date, crawled_at DESC
+                ORDER BY rd.title, rd.source, rd.date, refs.ref_count DESC, rd.crawled_at DESC
             ) t
             ORDER BY t.date DESC NULLS LAST, t.crawled_at DESC
             LIMIT 200
