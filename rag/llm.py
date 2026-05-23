@@ -590,6 +590,63 @@ OUTPUT FORMAT (한국어로 작성, 라벨은 그대로):
 본문: ..."""
 
 
+ARTICLE_SYSTEM_MZ = """너는 20·30대 독자가 모바일에서 읽는 MZ형 속보 콘텐츠를 쓰는 한국어 에디터다.
+목표는 '전형적인 기사체'가 아니라, 사실 검증된 뉴스 내용을 친구가 핵심만 빠르게 풀어주는 느낌으로 바꾸는 것이다.
+
+최우선 원칙:
+- 사실·수치·날짜·기관명·인용은 반드시 JSON 또는 참고자료에 있는 것만 사용한다.
+- 출처에 없는 원인, 전망, 평가, 배경지식은 절대 만들지 않는다.
+- 모든 본문 문단 끝에는 [1], [2] 같은 출처 표시를 붙인다.
+- 출처가 빈약하면 짧게 쓴다. 재미를 위해 사실을 늘리지 않는다.
+
+MZ 말투 규칙:
+- 반말/해체를 기본으로 쓴다. 예: "~했어", "~라는 얘기야", "~인 셈", "~봐야 해".
+- 제목은 후킹형으로 쓴다. '낚시성처럼 보이는' 강한 표현은 허용하되, 제목 내용은 반드시 본문 사실과 일치해야 한다.
+- 이모지는 사용할 수 있다. 단, 기사 전체에서 1~3개만 쓴다. 예: "🔥", "ㄷㄷ", "⚠️", "👀".
+- 초성체와 밈 표현도 사용할 수 있다. 단, 남발하지 말고 기사 전체에서 1~3회만 쓴다.
+  허용 예: "ㄹㅇ", "ㅇㅈ", "이건 좀", "레전드급", "킹받는 포인트", "알고 보니", "한 줄 요약".
+- 단, 혐오 표현, 조롱, 인신공격, 피해자 조롱, 허위 과장은 금지한다.
+- 독자에게 말하듯 쓴다. 예: "여기서 봐야 할 건", "포인트는 이거야", "왜 중요하냐면", "결국 핵심은".
+
+제목 규칙:
+- 일반 기사 제목처럼 딱딱하게 쓰지 않는다.
+- 20·30대가 클릭할 만한 짧고 강한 제목으로 쓴다.
+- 물음표/느낌표/이모지를 허용한다.
+- 예시 톤:
+  · "원유 재고가 2억 배럴 증발? 이거 ㄹㅇ 심상치 않다 🔥"
+  · "방미통위 또 이슈…공영방송 판이 흔들린다?"
+  · "개인정보 유출 447건? 이건 그냥 넘길 일이 아니다"
+
+리드 규칙:
+- 2~3문장.
+- 첫 문장은 "한 줄 요약:" 또는 "핵심은 이거야:"처럼 시작해도 된다.
+- 어려운 정책·기관 용어는 바로 풀어준다.
+
+본문 구조:
+1. 첫 문단: 핵심 사실을 반말로 빠르게 요약.
+2. 둘째 문단: 숫자와 날짜를 쉬운 말로 설명.
+3. 셋째 문단 이후: 왜 중요한지, 누가 영향을 받는지, 참고기사와 어떻게 이어지는지 설명.
+4. 마지막 문단: 독자가 기억해야 할 관전 포인트를 정리.
+
+문장 스타일:
+- 짧게 쓴다. 한 문장은 가능하면 45자 안팎.
+- 전문용어는 그대로 두지 말고 괄호나 짧은 풀이를 붙인다.
+- "밝혔다", "분석했다"만 반복하지 말고 "말했어", "경고했어", "정리하면", "문제는"을 섞는다.
+- 하지만 인용문과 수치는 원문 의미를 바꾸지 않는다.
+
+금지:
+- 출처에 없는 사실을 밈처럼 포장하기.
+- 사실과 다른 낚시 제목.
+- 음모론, 단정적 비난, 조롱.
+- 출처 표시 없는 본문 문단.
+
+OUTPUT FORMAT (한국어로 작성, 라벨은 그대로):
+장르: [정세보도|기관발표|편성안내|뉴스레터|칼럼|기타]
+제목: ...
+리드: ...
+본문: ..."""
+
+
 def _truncate_ref_body(text: str, max_chars: int | None) -> str:
     """참고기사 본문을 max_chars로 자름. None이면 원본 유지."""
     if not text or max_chars is None or max_chars <= 0:
@@ -637,18 +694,10 @@ ARTICLE_TONE_INSTRUCTIONS = {
         "조롱·비아냥·인신공격은 금지하고 제도적 쟁점 중심으로 쓴다."
     ),
     "mz": (
-        "MZ 뉴스레터/숏폼형 말투: 전형적인 보도자료 문장처럼 쓰지 말고, 20·30대가 "
-        "모바일에서 빠르게 읽는 설명형 기사처럼 쓴다. 핵심을 먼저 던지고, 쉬운 말로 "
-        "배경과 영향을 풀어준다. 리드는 2-3문장으로 짧게 쓰며 '핵심은 이겁니다', "
-        "'왜 중요하냐면', '포인트는' 같은 진입 문장을 자연스럽게 활용한다. 본문은 "
-        "문단당 2-3문장 중심으로 짧게 끊고, 각 문단 첫 문장에 '먼저 볼 건', '문제는', "
-        "'여기서 체크할 점', '다만', '결국'처럼 독자가 따라가기 쉬운 표지어를 넣을 수 "
-        "있다. 기관명·법안명·수치는 그대로 쓰되 어려운 용어는 괄호나 짧은 설명으로 "
-        "풀어준다. 독자에게 왜 내 일처럼 중요한지, 지금 무엇을 봐야 하는지까지 연결한다. "
-        "어휘는 '핵심', '포인트', '이슈', '쟁점', '체감', '논란', '관전 포인트', "
-        "'한 줄로 보면' 정도만 절제해서 쓰고, 오래된 신조어·밈·초성체·반말·이모지·"
-        "낚시성 제목은 금지한다. 친근하지만 가벼워 보이지 않게, 모든 주장과 수치는 "
-        "반드시 제공된 출처 안에서만 쓴다."
+        "MZ 말투 활성화: 반말/해체로 쓰고, 후킹형 제목·이모지·초성체·밈 표현을 "
+        "사실 기반 안에서 적극 사용한다. 예: 'ㄹㅇ', 'ㅇㅈ', '이건 좀', '레전드급', "
+        "'킹받는 포인트', '한 줄 요약', '왜 중요하냐면', '포인트는 이거야'. "
+        "다만 출처에 없는 사실, 허위 낚시, 조롱, 혐오, 인신공격은 금지한다."
     ),
 }
 
@@ -656,6 +705,19 @@ ARTICLE_TONE_INSTRUCTIONS = {
 def _tone_instruction(tone: str | None) -> str:
     key = (tone or "default").lower()
     return ARTICLE_TONE_INSTRUCTIONS.get(key, ARTICLE_TONE_INSTRUCTIONS["default"])
+
+
+def _is_mz_tone(tone: str | None) -> bool:
+    return (tone or "").lower() == "mz"
+
+
+def _article_system_prompt(style: str | None, tone: str | None) -> str:
+    if _is_mz_tone(tone):
+        return ARTICLE_SYSTEM_MZ
+    effective_style = (style or llm_config.article_style or "default").lower()
+    if effective_style == "mediaus":
+        return ARTICLE_SYSTEM_MEDIAUS
+    return ARTICLE_SYSTEM
 
 
 def generate_article(
@@ -678,12 +740,7 @@ def generate_article(
         "default" (기본) | "mediaus" (송창한·고성욱 기자 스타일).
         None이면 ARTICLE_STYLE 환경변수 또는 "default".
     """
-    # style 결정: 인자 > config (=환경변수) > "default"
-    effective_style = (style or llm_config.article_style or "default").lower()
-    if effective_style == "mediaus":
-        system_prompt = ARTICLE_SYSTEM_MEDIAUS
-    else:
-        system_prompt = ARTICLE_SYSTEM
+    system_prompt = _article_system_prompt(style, tone)
 
     chunk_refs = "\n\n".join(
         f"[{i+1}] [{c.get('source', '')} | {c.get('date', '')}] {c.get('title', '')}\n"
@@ -700,6 +757,7 @@ Writing requirements:
 - End every body paragraph with at least one citation marker like [1] or [2].
 - Do not invent facts to satisfy length. If sources are thin, write shorter.
 - Tone: {_tone_instruction(tone)}
+- If Tone is MZ, MZ voice overrides default/mediaus article form.
 
 Extracted JSON:
 {json.dumps(extracted_json, ensure_ascii=False, indent=2)}
@@ -730,8 +788,7 @@ def stream_generate_article_text(
     tone: str | None = None,
 ) -> Iterator[str]:
     """기사 생성 원문을 token delta 단위로 stream."""
-    effective_style = (style or llm_config.article_style or "default").lower()
-    system_prompt = ARTICLE_SYSTEM_MEDIAUS if effective_style == "mediaus" else ARTICLE_SYSTEM
+    system_prompt = _article_system_prompt(style, tone)
     chunk_refs = "\n\n".join(
         f"[{i+1}] [{c.get('source', '')} | {c.get('date', '')}] {c.get('title', '')}\n"
         f"Body: {_truncate_ref_body(c.get('original_text', ''), _generate_limit_for(i, ref_body_max_chars))}"
@@ -746,6 +803,7 @@ Writing requirements:
 - End every body paragraph with at least one citation marker like [1] or [2].
 - Do not invent facts to satisfy length. If sources are thin, write shorter.
 - Tone: {_tone_instruction(tone)}
+- If Tone is MZ, MZ voice overrides default/mediaus article form.
 
 Extracted JSON:
 {json.dumps(extracted_json, ensure_ascii=False, indent=2)}

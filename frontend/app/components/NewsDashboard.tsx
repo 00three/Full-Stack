@@ -288,7 +288,7 @@ const ARTICLE_TONE_OPTIONS: Array<{ value: ArticleTone; label: string; descripti
   { value: 'distinctive', label: '독특함', description: '유쾌하고 상상력이 풍부함' },
   { value: 'efficient', label: '효율적', description: '간결하고 꾸밈없음' },
   { value: 'critical', label: '냉소적', description: '비판적이고 거리를 둠' },
-  { value: 'mz', label: 'MZ 친화', description: '20·30 독자에게 익숙한 표현' },
+  { value: 'mz', label: 'MZ 친화', description: '밈·반말·이모지 허용' },
 ];
 
 export default function NewsDashboard() {
