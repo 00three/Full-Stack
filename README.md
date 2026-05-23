@@ -96,9 +96,10 @@ LLM provider:
 
 - `LLM_PROVIDER=openai | anthropic | bedrock`
 - Bedrock 사용 시 `BEDROCK_REGION`, `BEDROCK_DEFAULT_MODEL_KEY`, `BEDROCK_MODEL_CATALOG_JSON`을 설정합니다.
-- `ap-northeast-2`에서는 카탈로그의 실제 `model_id`에 inference profile ID를 넣습니다. 예: `global.anthropic.claude-sonnet-4-6`, `global.anthropic.claude-opus-4-7`, `apac.amazon.nova-lite-v1:0`
+- `ap-northeast-2`에서는 카탈로그의 실제 `model_id`에 inference profile ID를 넣습니다. 예: `global.anthropic.claude-sonnet-4-6`, `apac.amazon.nova-lite-v1:0`
 - Claude 계열은 계정 최초 1회 Anthropic use case details 제출이 끝나야 호출됩니다.
 - 모델 선택 UI는 `GET /llm/models`에서 허용목록만 받아 사용하며, 기본 모델은 `claude-sonnet-4-6`입니다.
+- Opus 계열은 계정에서 ConverseStream 호출이 실제로 허용된 뒤 `BEDROCK_MODEL_CATALOG_JSON`에 추가합니다.
 - 기사 스타일은 `ARTICLE_STYLE=default | mediaus`를 기본값으로 두고 요청별 `article_style`로 덮어쓸 수 있습니다.
 - 말투는 요청별 `article_tone`으로 지정합니다. 허용값은 `default`, `professional`, `friendly`, `direct`, `distinctive`, `efficient`, `critical`, `mz`입니다.
 - 컨테이너는 표준 AWS credential chain을 사용하므로 로컬은 `AWS_*` 환경변수, EC2는 IAM role 기준으로 연결합니다.
