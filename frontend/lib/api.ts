@@ -22,6 +22,8 @@ export interface RelatedArticle {
   source_release_title?: string;
   detail_url?: string;
   document_kind?: string;
+  thumbnailUrl?: string;
+  imageUrls?: string[];
 }
 
 export interface Citation {
@@ -81,6 +83,19 @@ interface PressReleaseRaw {
   image_urls?: string[];
 }
 
+interface RelatedArticleRaw {
+  id: string;
+  title: string;
+  source: string;
+  date: string;
+  source_release_id?: string;
+  source_release_title?: string;
+  detail_url?: string;
+  document_kind?: string;
+  thumbnail_url?: string | null;
+  image_urls?: string[];
+}
+
 function normalizePressRelease(raw: PressReleaseRaw): PressRelease {
   return {
     id: raw.id,
@@ -90,6 +105,21 @@ function normalizePressRelease(raw: PressReleaseRaw): PressRelease {
     summary: raw.summary ?? '',
     detail_url: raw.detail_url ?? '',
     isNew: !!raw.is_new,
+    thumbnailUrl: raw.thumbnail_url ?? undefined,
+    imageUrls: Array.isArray(raw.image_urls) ? raw.image_urls : undefined,
+  };
+}
+
+function normalizeRelatedArticle(raw: RelatedArticleRaw): RelatedArticle {
+  return {
+    id: raw.id,
+    title: raw.title,
+    source: raw.source,
+    date: raw.date,
+    source_release_id: raw.source_release_id,
+    source_release_title: raw.source_release_title,
+    detail_url: raw.detail_url,
+    document_kind: raw.document_kind,
     thumbnailUrl: raw.thumbnail_url ?? undefined,
     imageUrls: Array.isArray(raw.image_urls) ? raw.image_urls : undefined,
   };
@@ -112,7 +142,7 @@ export async function fetchRelatedArticles(
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fetchRelatedArticles: ${res.status}`);
   const data = await res.json();
-  return (data.related ?? []) as RelatedArticle[];
+  return ((data.related ?? []) as RelatedArticleRaw[]).map(normalizeRelatedArticle);
 }
 
 export async function fetchLLMModels(): Promise<LLMModelCatalog> {

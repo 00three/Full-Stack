@@ -113,7 +113,8 @@ class DBRAGService:
         sql = """
             SELECT d.id, d.chunk_id, d.source, d.date, d.title,
                    d.original_text, d.full_text, d.raw_document_id,
-                   rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url
+                   rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
+                   rd.image_urls
             FROM documents d
             JOIN raw_documents rd ON rd.id = d.raw_document_id
             WHERE rd.document_kind = 'reference_article'
@@ -159,6 +160,7 @@ class DBRAGService:
         sql = f"""
             SELECT d.id, d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
                    d.raw_document_id, rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
+                   rd.image_urls,
                    ({' + '.join(score_parts)}) AS rerank_score
             FROM documents d
             JOIN raw_documents rd ON rd.id = d.raw_document_id
@@ -213,6 +215,7 @@ class DBRAGService:
             if key in seen:
                 continue
             seen.add(key)
+            image_urls = r.get("image_urls") if isinstance(r.get("image_urls"), list) else []
             out.append({
                 "id": r["chunk_id"],
                 "title": r.get("title") or "",
@@ -222,6 +225,8 @@ class DBRAGService:
                 "source_release_title": source_release_title or "",
                 "detail_url": r.get("detail_url") or "",
                 "document_kind": r.get("document_kind") or "",
+                "thumbnail_url": image_urls[0] if image_urls else None,
+                "image_urls": image_urls,
             })
             if len(out) >= max_results:
                 break
@@ -255,7 +260,7 @@ class DBRAGService:
             return []
         sql = """
             SELECT d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
-                   rd.detail_url, rd.document_kind
+                   rd.detail_url, rd.document_kind, rd.image_urls
             FROM documents d
             JOIN raw_documents rd ON rd.id = d.raw_document_id
             WHERE d.chunk_id = ANY(%s)
@@ -274,6 +279,7 @@ class DBRAGService:
                 "full_text": r["full_text"],
                 "detail_url": r["detail_url"],
                 "document_kind": r["document_kind"],
+                "image_urls": r["image_urls"] or [],
             }
             for r in rows
         ]

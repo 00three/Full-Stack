@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ExternalLink, Info } from 'lucide-react';
 import type { Citation } from '@/lib/api';
 
@@ -10,6 +10,7 @@ interface Props {
   className?: string;
   fallbackCitationId?: string;
   appendFallbackWhenUncited?: boolean;
+  paragraphInserts?: Record<number, ReactNode[]>;
 }
 
 export function BodyWithCitations({
@@ -18,6 +19,7 @@ export function BodyWithCitations({
   className,
   fallbackCitationId = '1',
   appendFallbackWhenUncited = false,
+  paragraphInserts,
 }: Props) {
   if (!body) return null;
 
@@ -50,12 +52,19 @@ export function BodyWithCitations({
       {paragraphs.map((paragraph, idx) => {
         const hasParagraphCitation = /\[\d+\]/.test(paragraph);
         return (
-          <p key={idx} className={idx === 0 ? '' : 'mt-4'}>
-            {renderCitationParts(paragraph, `p-${idx}`)}
-            {appendFallbackWhenUncited && !hasParagraphCitation && fallbackCitation && (
-              <CitationIcon citation={fallbackCitation} className="ml-2" />
-            )}
-          </p>
+          <div key={idx}>
+            <p className={idx === 0 ? '' : 'mt-4'}>
+              {renderCitationParts(paragraph, `p-${idx}`)}
+              {appendFallbackWhenUncited && !hasParagraphCitation && fallbackCitation && (
+                <CitationIcon citation={fallbackCitation} className="ml-2" />
+              )}
+            </p>
+            {paragraphInserts?.[idx]?.map((insert, insertIdx) => (
+              <div key={`insert-${idx}-${insertIdx}`} className="mt-4">
+                {insert}
+              </div>
+            ))}
+          </div>
         );
       })}
     </div>

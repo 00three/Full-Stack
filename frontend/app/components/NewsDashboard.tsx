@@ -4,7 +4,7 @@ import confetti from 'canvas-confetti';
 import {
   Search, RefreshCcw, ExternalLink,
   ChevronRight, ArrowRight, Download, FileText,
-  Info, CheckCircle2, X
+  Info, CheckCircle2, X, Image as ImageIcon, Plus, Trash2
 } from 'lucide-react';
 import {
   fetchPressReleases,
@@ -270,6 +270,23 @@ type GenerationStep = {
   message: string;
 };
 
+type ImagePlacement = 'after-lead' | `after-${number}`;
+
+type ArticleImageAsset = {
+  id: string;
+  url: string;
+  source: string;
+  title: string;
+  date?: string;
+  sourceLabel: string;
+};
+
+type InsertedArticleImage = ArticleImageAsset & {
+  insertId: string;
+  placement: ImagePlacement;
+  caption: string;
+};
+
 const GENERATION_FLOW: GenerationStep[] = [
   { stage: 'extracting', message: '핵심 사실을 정리하는 중입니다.' },
   { stage: 'drafting', message: '기사 초안 생성을 요청했습니다.' },
@@ -323,6 +340,8 @@ export default function NewsDashboard() {
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
   const [detailPressRelease, setDetailPressRelease] = useState<PressRelease | null>(null);
+  const [imagePlacement, setImagePlacement] = useState<ImagePlacement>('after-lead');
+  const [insertedImages, setInsertedImages] = useState<InsertedArticleImage[]>([]);
   const stepRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const generationPreviewRef = useRef<HTMLPreElement | null>(null);
 
@@ -471,6 +490,70 @@ export default function NewsDashboard() {
     return Array.from(new Set(urls));
   }, [detailPressRelease]);
 
+  const generatedBodyParagraphs = useMemo(
+    () => (generated?.body ?? '').split(/\n+/).filter((paragraph) => paragraph.trim().length > 0),
+    [generated?.body],
+  );
+
+  const imageTargets = useMemo(() => {
+    const bodyTargets = generatedBodyParagraphs.map((_, idx) => ({
+      value: `after-${idx}` as ImagePlacement,
+      label: `본문 ${idx + 1}문단 뒤`,
+    }));
+    return [{ value: 'after-lead' as ImagePlacement, label: '리드 아래' }, ...bodyTargets];
+  }, [generatedBodyParagraphs]);
+
+  const availableArticleImages = useMemo<ArticleImageAsset[]>(() => {
+    const assets: ArticleImageAsset[] = [];
+    const seen = new Set<string>();
+    const pushAsset = (
+      url: string | undefined,
+      source: string,
+      title: string,
+      sourceLabel: string,
+      date?: string,
+    ) => {
+      if (!url || seen.has(url)) return;
+      seen.add(url);
+      assets.push({
+        id: `${sourceLabel}-${assets.length}`,
+        url,
+        source,
+        title,
+        date,
+        sourceLabel,
+      });
+    };
+
+    if (selectedPR) {
+      const urls = [selectedPR.thumbnailUrl, ...(selectedPR.imageUrls ?? [])];
+      urls.forEach((url) => pushAsset(url, selectedPR.source, selectedPR.title, '메인 보도자료', selectedPR.date));
+    }
+
+    selectedArticles.forEach((article, idx) => {
+      const urls = [article.thumbnailUrl, ...(article.imageUrls ?? [])];
+      urls.forEach((url) => pushAsset(url, article.source, article.title, `관련기사 ${idx + 1}`, article.date));
+    });
+
+    return assets;
+  }, [selectedPR, selectedArticles]);
+
+  const bodyImageInserts = useMemo(() => {
+    const grouped: Record<number, InsertedArticleImage[]> = {};
+    insertedImages.forEach((image) => {
+      if (image.placement === 'after-lead') return;
+      const idx = Number(image.placement.replace('after-', ''));
+      if (!Number.isFinite(idx)) return;
+      grouped[idx] = [...(grouped[idx] ?? []), image];
+    });
+    return grouped;
+  }, [insertedImages]);
+
+  const leadImages = useMemo(
+    () => insertedImages.filter((image) => image.placement === 'after-lead'),
+    [insertedImages],
+  );
+
   const handleGenerate = () => {
     if (!selectedPR) return;
     let sawToken = false;
@@ -491,6 +574,7 @@ export default function NewsDashboard() {
     setGenerationStatus('핵심 사실을 정리하는 중입니다.');
     setGenerationSteps([{ stage: 'extracting', message: '핵심 사실을 정리하는 중입니다.' }]);
     setGenerationPreview('');
+    setInsertedImages([]);
     generateArticleStream(
       [selectedPR.id],
       selectedArticles.map((a) => a.id),
@@ -527,6 +611,53 @@ export default function NewsDashboard() {
       })
       .finally(() => setIsGenerating(false));
   };
+
+  const insertArticleImage = (asset: ArticleImageAsset) => {
+    const safePlacement = imageTargets.some((target) => target.value === imagePlacement)
+      ? imagePlacement
+      : 'after-lead';
+    setInsertedImages((prev) => [
+      ...prev,
+      {
+        ...asset,
+        insertId: `${asset.id}-${Date.now()}-${prev.length}`,
+        placement: safePlacement,
+        caption: `${asset.sourceLabel} · ${asset.source}`,
+      },
+    ]);
+  };
+
+  const removeArticleImage = (insertId: string) => {
+    setInsertedImages((prev) => prev.filter((image) => image.insertId !== insertId));
+  };
+
+  const renderInsertedImage = (image: InsertedArticleImage) => (
+    <figure
+      key={image.insertId}
+      className="group/image relative overflow-hidden rounded-sm border border-white/10 bg-white/[0.025] p-2"
+    >
+      {isEditing && (
+        <button
+          type="button"
+          onClick={() => removeArticleImage(image.insertId)}
+          className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-sm border border-white/15 bg-black/70 text-white/70 opacity-0 backdrop-blur transition-all hover:border-white/40 hover:text-white group-hover/image:opacity-100"
+          aria-label="이미지 삭제"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+      <img
+        src={image.url}
+        alt={image.title}
+        className="max-h-[360px] w-full rounded-[2px] object-contain"
+        loading="lazy"
+      />
+      <figcaption className="mt-2 flex flex-wrap items-center gap-2 px-1 text-[10px] font-sans text-white/45">
+        <span className="uppercase tracking-[0.16em] text-accent/70">{image.caption}</span>
+        <span className="line-clamp-1">{image.title}</span>
+      </figcaption>
+    </figure>
+  );
 
   return (
     <section className="min-h-screen bg-bg text-ink pt-12 pb-24 px-4 sm:px-6 selection:bg-white/20 relative overflow-hidden">
@@ -1266,13 +1397,20 @@ export default function NewsDashboard() {
                         className="w-full bg-transparent text-base sm:text-[17px] font-sans font-medium text-orange-400 leading-relaxed outline-none transition-all resize-none min-h-[90px] px-2 border-l-2 border-white/60 focus:bg-white/[0.03] py-2 rounded-sm"
                       />
                     ) : (
-                      <BodyWithCitations
-                        body={generated?.lead ?? ''}
-                        citations={generated?.citations ?? {}}
-                        fallbackCitationId="1"
-                        appendFallbackWhenUncited
-                        className="w-full bg-transparent text-base sm:text-[17px] font-sans font-medium text-orange-400 leading-relaxed px-2 py-1 whitespace-pre-wrap"
-                      />
+                      <>
+                        <BodyWithCitations
+                          body={generated?.lead ?? ''}
+                          citations={generated?.citations ?? {}}
+                          fallbackCitationId="1"
+                          appendFallbackWhenUncited
+                          className="w-full bg-transparent text-base sm:text-[17px] font-sans font-medium text-orange-400 leading-relaxed px-2 py-1 whitespace-pre-wrap"
+                        />
+                        {leadImages.length > 0 && (
+                          <div className="mt-4 space-y-4 px-2">
+                            {leadImages.map(renderInsertedImage)}
+                          </div>
+                        )}
+                      </>
                     )}
                   </motion.div>
 
@@ -1294,6 +1432,12 @@ export default function NewsDashboard() {
                         citations={generated?.citations ?? {}}
                         fallbackCitationId="1"
                         appendFallbackWhenUncited
+                        paragraphInserts={Object.fromEntries(
+                          Object.entries(bodyImageInserts).map(([idx, images]) => [
+                            Number(idx),
+                            images.map(renderInsertedImage),
+                          ]),
+                        )}
                       />
                     )}
                   </motion.div>
@@ -1302,6 +1446,95 @@ export default function NewsDashboard() {
 
               {/* Sidebar */}
               <motion.div initial={{opacity:0, x:20}} animate={{opacity:1,x:0}} transition={{delay:0.5}} className="space-y-4">
+                <div className="border border-white/10 bg-white/[0.02] p-5 space-y-4 backdrop-blur-md rounded-sm">
+                  <h4 className="text-[10px] tracking-[0.2em] text-accent border-b border-white/10 font-sans pb-3 flex items-center gap-2">
+                    <ImageIcon className="w-3 h-3" /> 이미지 삽입
+                  </h4>
+
+                  <label className="block space-y-2">
+                    <span className="text-[9px] uppercase tracking-[0.18em] text-white/35 font-sans">
+                      삽입 위치
+                    </span>
+                    <select
+                      value={imagePlacement}
+                      onChange={(e) => setImagePlacement(e.target.value as ImagePlacement)}
+                      className="w-full rounded-sm border border-white/15 bg-black/30 px-3 py-2 text-[11px] font-sans text-white outline-none focus:border-white/40"
+                    >
+                      {imageTargets.map((target) => (
+                        <option key={target.value} value={target.value} className="bg-[#101010]">
+                          {target.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {availableArticleImages.length > 0 ? (
+                    <div className="grid gap-2">
+                      {availableArticleImages.map((asset) => (
+                        <div
+                          key={asset.id}
+                          className="grid grid-cols-[72px_1fr] gap-3 rounded-[2px] border border-white/5 bg-black/20 p-2"
+                        >
+                          <img
+                            src={asset.url}
+                            alt={asset.title}
+                            className="h-[56px] w-[72px] rounded-[2px] border border-white/10 object-cover"
+                            loading="lazy"
+                          />
+                          <div className="min-w-0 space-y-2">
+                            <div className="flex items-center gap-2 text-[9px] uppercase tracking-[0.16em] text-accent/70">
+                              <span>{asset.sourceLabel}</span>
+                              <span className="text-white/25">{asset.source}</span>
+                            </div>
+                            <div className="line-clamp-2 text-[11px] leading-snug text-white/60">
+                              {asset.title}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => insertArticleImage(asset)}
+                              className="inline-flex items-center gap-1 rounded-sm border border-white/15 px-2 py-1 text-[9px] font-sans uppercase tracking-[0.16em] text-white/70 transition-colors hover:border-white/40 hover:bg-white hover:text-black"
+                            >
+                              <Plus className="h-3 w-3" /> 삽입
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-sm border border-white/5 bg-black/20 px-3 py-4 text-[11px] leading-relaxed text-white/40">
+                      선택한 소스에서 사용할 수 있는 이미지가 없습니다.
+                    </div>
+                  )}
+
+                  {insertedImages.length > 0 && (
+                    <div className="border-t border-white/10 pt-3">
+                      <div className="mb-2 text-[9px] uppercase tracking-[0.18em] text-white/35 font-sans">
+                        삽입된 이미지 {insertedImages.length}개
+                      </div>
+                      <div className="space-y-1.5">
+                        {insertedImages.map((image) => (
+                          <div
+                            key={image.insertId}
+                            className="flex items-center justify-between gap-2 rounded-[2px] border border-white/5 bg-black/20 px-2 py-1.5"
+                          >
+                            <span className="min-w-0 truncate text-[10px] text-white/55">
+                              {imageTargets.find((target) => target.value === image.placement)?.label ?? '본문'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeArticleImage(image.insertId)}
+                              className="shrink-0 text-white/40 hover:text-white"
+                              aria-label="삽입 이미지 삭제"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="border border-white/10 bg-white/[0.02] p-5 space-y-3 backdrop-blur-md rounded-sm">
                   <h4 className="text-[10px] tracking-[0.2em] text-accent border-b border-white/10 font-sans pb-3 mb-4 flex items-center gap-2">
                     <Download className="w-3 h-3" /> 내보내기

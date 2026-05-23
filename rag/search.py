@@ -28,6 +28,7 @@ def dense_search(query_embedding: list[float], top_k: int = 50) -> list[dict]:
     sql = """
         SELECT d.id, d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
                d.raw_document_id, rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
+               rd.image_urls,
                1 - (d.embedding_dense <=> %s::vector) AS score
         FROM documents d
         JOIN raw_documents rd ON rd.id = d.raw_document_id
@@ -53,6 +54,7 @@ def keyword_search(query_text: str, top_k: int = 50) -> list[dict]:
     sql = """
         SELECT d.id, d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
                d.raw_document_id, rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
+               rd.image_urls,
                ts_rank(to_tsvector('simple', d.full_text), plainto_tsquery('simple', %s)) AS score
         FROM documents d
         JOIN raw_documents rd ON rd.id = d.raw_document_id
