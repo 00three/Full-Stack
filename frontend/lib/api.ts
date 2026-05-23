@@ -52,6 +52,17 @@ export interface LLMModelCatalog {
   models: LLMModelOption[];
 }
 
+export type ArticleStyle = 'default' | 'mediaus';
+export type ArticleTone =
+  | 'default'
+  | 'professional'
+  | 'friendly'
+  | 'direct'
+  | 'distinctive'
+  | 'efficient'
+  | 'critical'
+  | 'mz';
+
 export type GenerationStreamEvent =
   | { type: 'stage'; stage: string; message: string; extracted_json?: Record<string, unknown> }
   | { type: 'token'; delta: string }
@@ -115,7 +126,8 @@ export async function generateArticle(
   relatedArticleIds: string[],
   createdBy?: string,
   modelKey?: string,
-  articleStyle?: 'default' | 'mediaus',
+  articleStyle?: ArticleStyle,
+  articleTone?: ArticleTone,
 ): Promise<GeneratedArticle> {
   const res = await fetch(`${API_BASE}/articles/generate`, {
     method: 'POST',
@@ -126,6 +138,7 @@ export async function generateArticle(
       created_by: createdBy || null,
       model_key: modelKey || null,
       article_style: articleStyle || null,
+      article_tone: articleTone || null,
     }),
   });
   if (!res.ok) throw new Error(`generateArticle: ${res.status}`);
@@ -137,7 +150,8 @@ export async function generateArticleStream(
   relatedArticleIds: string[],
   createdBy: string | undefined,
   modelKey: string | undefined,
-  articleStyle: 'default' | 'mediaus',
+  articleStyle: ArticleStyle,
+  articleTone: ArticleTone,
   onEvent: (event: GenerationStreamEvent) => void,
 ): Promise<GeneratedArticle> {
   const res = await fetch(`${API_BASE}/articles/generate/stream`, {
@@ -149,6 +163,7 @@ export async function generateArticleStream(
       created_by: createdBy || null,
       model_key: modelKey || null,
       article_style: articleStyle,
+      article_tone: articleTone,
     }),
   });
   if (!res.ok) throw new Error(`generateArticleStream: ${res.status}`);

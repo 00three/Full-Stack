@@ -34,6 +34,7 @@ class LLMArticleGenerator:
         provider: str | None = None,
         model: str | None = None,
         style: str | None = None,
+        tone: str | None = None,
         created_by: str | None = None,
     ) -> dict:
         """
@@ -69,6 +70,7 @@ class LLMArticleGenerator:
                 provider=provider,
                 model=model,
                 style=style,
+                tone=tone,
             )
         except Exception as e:
             article = {
@@ -99,6 +101,7 @@ class LLMArticleGenerator:
         provider: str | None = None,
         model: str | None = None,
         style: str | None = None,
+        tone: str | None = None,
         created_by: str | None = None,
     ) -> Iterator[dict]:
         """생성 단계를 event dict로 stream."""
@@ -138,6 +141,7 @@ class LLMArticleGenerator:
             provider=provider,
             model=model,
             style=style,
+            tone=tone,
         )
         for event in self._stream_tokens_with_progress(draft_stream):
             if event["type"] == "token":

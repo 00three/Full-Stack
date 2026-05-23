@@ -25,6 +25,13 @@ _DEFAULT_MODELS = [
         "Claude",
     ),
     LLMModelOption(
+        "claude-opus-4-7",
+        "Claude Opus 4.7",
+        "bedrock",
+        "global.anthropic.claude-opus-4-7",
+        "Claude",
+    ),
+    LLMModelOption(
         "claude-opus-4-6",
         "Claude Opus 4.6",
         "bedrock",

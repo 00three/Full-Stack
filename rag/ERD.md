@@ -53,6 +53,7 @@ erDiagram
     varchar llm_provider "bedrock | openai | anthropic"
     varchar llm_model_id "실제 호출 modelId"
     varchar article_style "default | mediaus"
+    varchar article_tone "default | professional | friendly | direct | distinctive | efficient | critical | mz"
     varchar status "draft | saved | published"
     varchar created_by "기자 ID"
     timestamp created_at "생성 시점"

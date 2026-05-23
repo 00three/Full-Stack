@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS generated_articles (
     llm_provider        VARCHAR(32),                          -- bedrock | openai | anthropic
     llm_model_id        VARCHAR(255),                         -- 실제 호출 modelId
     article_style       VARCHAR(32),                          -- default | mediaus
+    article_tone        VARCHAR(32),                          -- default | professional | friendly | direct | distinctive | efficient | critical | mz
     status              VARCHAR(20) NOT NULL DEFAULT 'draft'
                         CHECK (status IN ('draft', 'saved', 'published')),
     created_by          VARCHAR(64),                          -- 기자 ID
@@ -124,6 +125,8 @@ ALTER TABLE generated_articles
     ADD COLUMN IF NOT EXISTS llm_model_id VARCHAR(255);
 ALTER TABLE generated_articles
     ADD COLUMN IF NOT EXISTS article_style VARCHAR(32);
+ALTER TABLE generated_articles
+    ADD COLUMN IF NOT EXISTS article_tone VARCHAR(32);
 
 CREATE INDEX IF NOT EXISTS idx_raw_documents_kind
     ON raw_documents(document_kind);

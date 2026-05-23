@@ -27,6 +27,16 @@ class GenerateRequest(BaseModel):
     created_by: str | None = None
     model_key: str | None = None
     article_style: Literal["default", "mediaus"] | None = None
+    article_tone: Literal[
+        "default",
+        "professional",
+        "friendly",
+        "direct",
+        "distinctive",
+        "efficient",
+        "critical",
+        "mz",
+    ] | None = None
 
 
 @router.post("/generate")
@@ -58,6 +68,7 @@ def generate_article(
         provider=selected_model.provider,
         model=selected_model.model_id,
         style=article_style,
+        tone=body.article_tone,
         created_by=body.created_by,
     )
     article["article_id"] = repo.save(
@@ -68,6 +79,7 @@ def generate_article(
         llm_provider=selected_model.provider,
         llm_model_id=selected_model.model_id,
         article_style=article_style,
+        article_tone=body.article_tone or "default",
     )
     return article
 
@@ -114,6 +126,7 @@ def stream_generate_article(
                 provider=selected_model.provider,
                 model=selected_model.model_id,
                 style=article_style,
+                tone=body.article_tone,
                 created_by=body.created_by,
             ):
                 if event["type"] == "article":
@@ -133,6 +146,7 @@ def stream_generate_article(
                 llm_provider=selected_model.provider,
                 llm_model_id=selected_model.model_id,
                 article_style=article_style,
+                article_tone=body.article_tone or "default",
             )
             yield _sse({"type": "complete", "article": final_article})
         except Exception as exc:

@@ -21,6 +21,7 @@ class DBArticleRepository:
         llm_provider: str | None = None,
         llm_model_id: str | None = None,
         article_style: str | None = None,
+        article_tone: str | None = None,
     ) -> str:
         raw_document_id = self._find_primary_raw_document_id(press_release_ids)
         sql = """
@@ -37,11 +38,12 @@ class DBArticleRepository:
                 created_by,
                 llm_provider,
                 llm_model_id,
-                article_style
+                article_style,
+                article_tone
             ) VALUES (
                 %s, %s, %s, %s,
                 %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb,
-                %s, %s, %s, %s
+                %s, %s, %s, %s, %s
             )
             RETURNING id
         """
@@ -63,6 +65,7 @@ class DBArticleRepository:
                         llm_provider,
                         llm_model_id,
                         article_style,
+                        article_tone,
                     ),
                 )
                 return str(cur.fetchone()[0])
@@ -97,5 +100,6 @@ class MockArticleRepository:
         llm_provider: str | None = None,
         llm_model_id: str | None = None,
         article_style: str | None = None,
+        article_tone: str | None = None,
     ) -> str:
         return "mock-article"

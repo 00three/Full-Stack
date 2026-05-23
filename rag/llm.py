@@ -610,6 +610,46 @@ def _generate_limit_for(index: int, override: int | None) -> int:
     return llm_config.generate_main_max_chars if index == 0 else llm_config.generate_ref_max_chars
 
 
+ARTICLE_TONE_INSTRUCTIONS = {
+    "default": "기본 말투: 중립적이고 자연스러운 한국어 뉴스 문체를 유지한다.",
+    "professional": (
+        "전문적 말투: 정제되고 정확한 표현을 사용한다. 행정·정책·법률 용어는 "
+        "필요할 때만 풀어 쓰고, 단정적이되 과장하지 않는다."
+    ),
+    "friendly": (
+        "친근한 말투: 독자가 쉽게 따라올 수 있게 문장을 부드럽게 쓴다. "
+        "뉴스 형식과 사실 정확성은 유지하고, 지나친 구어체는 피한다."
+    ),
+    "direct": (
+        "솔직한 말투: 핵심을 앞에 두고 직설적으로 쓴다. 우회적 표현을 줄이되 "
+        "비난이나 단정적 해석은 출처가 있을 때만 사용한다."
+    ),
+    "distinctive": (
+        "독특한 말투: 제목과 리드에 약간의 리듬감과 신선한 표현을 허용한다. "
+        "본문은 기사 문체를 유지하고, 장식적 표현 때문에 사실이 흐려지지 않게 한다."
+    ),
+    "efficient": (
+        "효율적 말투: 문장을 짧게 끊고 중복 설명을 줄인다. 독자가 빠르게 핵심을 "
+        "파악하도록 수치·주체·결과를 선명하게 배치한다."
+    ),
+    "critical": (
+        "냉소적 말투: 비판적 관점을 허용하되, 근거가 있는 표현만 사용한다. "
+        "조롱·비아냥·인신공격은 금지하고 제도적 쟁점 중심으로 쓴다."
+    ),
+    "mz": (
+        "MZ 친화 말투: 20·30대 독자가 빠르게 이해할 수 있게 쉽고 리듬감 있게 쓴다. "
+        "'핵심은', '포인트는', '체감', '논란', '쟁점'처럼 온라인 독자에게 익숙한 "
+        "표현은 자연스럽게 허용한다. 다만 밈, 과도한 유행어, 반말, 이모지, "
+        "선정적 제목은 금지한다. 40·50대 독자도 어색하지 않게 공적 뉴스 톤을 유지한다."
+    ),
+}
+
+
+def _tone_instruction(tone: str | None) -> str:
+    key = (tone or "default").lower()
+    return ARTICLE_TONE_INSTRUCTIONS.get(key, ARTICLE_TONE_INSTRUCTIONS["default"])
+
+
 def generate_article(
     extracted_json: dict,
     chunks: list[dict],
@@ -618,6 +658,7 @@ def generate_article(
     model: str | None = None,
     ref_body_max_chars: int | None = None,
     style: str | None = None,
+    tone: str | None = None,
 ) -> dict:
     """JSON + 참고 chunk로 속보기사 생성 (2차 LLM).
 
@@ -650,6 +691,7 @@ Writing requirements:
 - Write 6-8 body paragraphs for normal policy/institution/labor articles.
 - End every body paragraph with at least one citation marker like [1] or [2].
 - Do not invent facts to satisfy length. If sources are thin, write shorter.
+- Tone: {_tone_instruction(tone)}
 
 Extracted JSON:
 {json.dumps(extracted_json, ensure_ascii=False, indent=2)}
@@ -677,6 +719,7 @@ def stream_generate_article_text(
     model: str | None = None,
     ref_body_max_chars: int | None = None,
     style: str | None = None,
+    tone: str | None = None,
 ) -> Iterator[str]:
     """기사 생성 원문을 token delta 단위로 stream."""
     effective_style = (style or llm_config.article_style or "default").lower()
@@ -694,6 +737,7 @@ Writing requirements:
 - Write 6-8 body paragraphs for normal policy/institution/labor articles.
 - End every body paragraph with at least one citation marker like [1] or [2].
 - Do not invent facts to satisfy length. If sources are thin, write shorter.
+- Tone: {_tone_instruction(tone)}
 
 Extracted JSON:
 {json.dumps(extracted_json, ensure_ascii=False, indent=2)}

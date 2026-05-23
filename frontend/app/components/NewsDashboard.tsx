@@ -15,6 +15,8 @@ import {
   type RelatedArticle,
   type GeneratedArticle,
   type LLMModelOption,
+  type ArticleStyle,
+  type ArticleTone,
 } from '@/lib/api';
 import { BodyWithCitations } from './BodyWithCitations';
 
@@ -278,6 +280,17 @@ const GENERATION_FLOW: GenerationStep[] = [
 ];
 const VISIBLE_GENERATION_STAGES = new Set(GENERATION_FLOW.map((item) => item.stage));
 
+const ARTICLE_TONE_OPTIONS: Array<{ value: ArticleTone; label: string; description: string }> = [
+  { value: 'default', label: '기본값', description: '기본 스타일과 말투' },
+  { value: 'professional', label: '전문적', description: '정제되어 있고 정확함' },
+  { value: 'friendly', label: '친근함', description: '따뜻하고 수다스러움' },
+  { value: 'direct', label: '솔직함', description: '직설적이면서도 격려함' },
+  { value: 'distinctive', label: '독특함', description: '유쾌하고 상상력이 풍부함' },
+  { value: 'efficient', label: '효율적', description: '간결하고 꾸밈없음' },
+  { value: 'critical', label: '냉소적', description: '비판적이고 거리를 둠' },
+  { value: 'mz', label: 'MZ 친화', description: '20·30 독자에게 익숙한 표현' },
+];
+
 export default function NewsDashboard() {
   const [step, setStep] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [reporterInfo, setReporterInfo] = useState({ media: '', name: '' });
@@ -304,7 +317,8 @@ export default function NewsDashboard() {
     },
   ]);
   const [selectedModelKey, setSelectedModelKey] = useState('claude-sonnet-4-6');
-  const [articleStyle, setArticleStyle] = useState<'default' | 'mediaus'>('default');
+  const [articleStyle, setArticleStyle] = useState<ArticleStyle>('default');
+  const [articleTone, setArticleTone] = useState<ArticleTone>('default');
   const [llmModelsError, setLlmModelsError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
@@ -483,6 +497,7 @@ export default function NewsDashboard() {
       reporterInfo.name,
       selectedModelKey,
       articleStyle,
+      articleTone,
       (event) => {
         if (event.type === 'stage') {
           setGenerationStatus(event.message);
@@ -1021,19 +1036,38 @@ export default function NewsDashboard() {
                     </select>
                   </label>
 
-                  <label className="space-y-2">
-                    <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
-                      기사 스타일
-                    </span>
-                    <select
-                      value={articleStyle}
-                      onChange={(e) => setArticleStyle(e.target.value as 'default' | 'mediaus')}
-                      className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
-                    >
-                      <option value="default" className="bg-[#101010]">일반 뉴스</option>
-                      <option value="mediaus" className="bg-[#101010]">미디어스 스타일</option>
-                    </select>
-                  </label>
+                  <div className="space-y-4">
+                    <label className="block space-y-2">
+                      <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
+                        기사 스타일
+                      </span>
+                      <select
+                        value={articleStyle}
+                        onChange={(e) => setArticleStyle(e.target.value as ArticleStyle)}
+                        className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
+                      >
+                        <option value="default" className="bg-[#101010]">일반 뉴스</option>
+                        <option value="mediaus" className="bg-[#101010]">미디어스 스타일</option>
+                      </select>
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="block text-[10px] tracking-[0.2em] font-sans text-accent">
+                        말투
+                      </span>
+                      <select
+                        value={articleTone}
+                        onChange={(e) => setArticleTone(e.target.value as ArticleTone)}
+                        className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
+                      >
+                        {ARTICLE_TONE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value} className="bg-[#101010]">
+                            {option.label} - {option.description}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </div>
 
                 {llmModelsError && (
