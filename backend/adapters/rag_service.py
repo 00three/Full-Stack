@@ -122,6 +122,14 @@ class DBRAGService:
         source_release_title: str | None,
         max_results: int,
     ) -> list[dict]:
+        if source_release_id:
+            return self._fast_keyword_related(
+                query_text=query_text,
+                source_release_id=source_release_id,
+                source_release_title=source_release_title,
+                max_results=max_results,
+            )
+
         if not _RELATED_USE_VECTOR:
             return self._fast_keyword_related(
                 query_text=query_text,
