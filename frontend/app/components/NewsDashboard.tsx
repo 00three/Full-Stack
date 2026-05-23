@@ -295,6 +295,48 @@ type ExportImageData = InsertedArticleImage & {
   height: number;
 };
 
+type SourceColumnConfig = {
+  key: 'kcc' | 'union' | 'mbc' | 'nsp';
+  label: string;
+  sourceForLogo: string;
+  aliases: string[];
+};
+
+const SOURCE_COLUMNS: SourceColumnConfig[] = [
+  {
+    key: 'kcc',
+    label: '방송통신위원회',
+    sourceForLogo: '방송통신위원회',
+    aliases: ['방송통신위원회', 'KCC'],
+  },
+  {
+    key: 'union',
+    label: '언론노조',
+    sourceForLogo: '언론노조',
+    aliases: ['언론노조', 'NODONG'],
+  },
+  {
+    key: 'mbc',
+    label: 'MBC',
+    sourceForLogo: 'MBC',
+    aliases: ['MBC'],
+  },
+  {
+    key: 'nsp',
+    label: '국회도서관',
+    sourceForLogo: '국회도서관',
+    aliases: ['국회도서관', 'NSP', 'NAIL'],
+  },
+];
+
+const resolveSourceColumnKey = (source: string): SourceColumnConfig['key'] => {
+  const normalized = source.trim().toLowerCase();
+  const matched = SOURCE_COLUMNS.find((column) =>
+    column.aliases.some((alias) => normalized.includes(alias.toLowerCase())),
+  );
+  return matched?.key ?? 'nsp';
+};
+
 const GENERATION_FLOW: GenerationStep[] = [
   { stage: 'extracting', message: '핵심 사실을 정리하는 중입니다.' },
   { stage: 'drafting', message: '기사 초안 생성을 요청했습니다.' },
@@ -322,6 +364,7 @@ export default function NewsDashboard() {
   const [pressReleases, setPressReleases] = useState<PressRelease[]>([]);
   const [isLoadingPRs, setIsLoadingPRs] = useState(true);
   const [prsError, setPrsError] = useState<string | null>(null);
+  const [pressQuery, setPressQuery] = useState('');
   const [selectedPR, setSelectedPR] = useState<PressRelease | null>(null);
   const [relatedArticles, setRelatedArticles] = useState<RelatedArticle[]>([]);
   const [relatedQuery, setRelatedQuery] = useState('');
@@ -490,6 +533,32 @@ export default function NewsDashboard() {
       return haystack.includes(query);
     });
   }, [relatedArticles, relatedQuery]);
+
+  const filteredPressReleases = useMemo(() => {
+    const query = pressQuery.trim().toLowerCase();
+    if (!query) return pressReleases;
+    return pressReleases.filter((pr) => {
+      const haystack = [
+        pr.title,
+        pr.source,
+        pr.date,
+        pr.summary,
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [pressReleases, pressQuery]);
+
+  const pressReleaseColumns = useMemo(() => {
+    const columns = SOURCE_COLUMNS.map((column) => ({
+      ...column,
+      items: [] as PressRelease[],
+    }));
+    filteredPressReleases.forEach((pr) => {
+      const key = resolveSourceColumnKey(pr.source);
+      columns.find((column) => column.key === key)?.items.push(pr);
+    });
+    return columns;
+  }, [filteredPressReleases]);
 
   const detailImages = useMemo(() => {
     if (!detailPressRelease) return [];
@@ -1142,11 +1211,17 @@ export default function NewsDashboard() {
                 </div>
                 <div className="relative w-full sm:w-64 group">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-accent group-focus-within:text-ink transition-colors" />
-                  <input type="text" placeholder="검색어 입력..." className="w-full bg-white/[0.02] border border-white/10 text-ink text-xs pl-9 pr-3 py-2 outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all placeholder:text-white/20 rounded-sm" />
+                  <input
+                    type="text"
+                    value={pressQuery}
+                    onChange={(e) => setPressQuery(e.target.value)}
+                    placeholder="검색어 입력..."
+                    className="w-full bg-white/[0.02] border border-white/10 text-ink text-xs pl-9 pr-3 py-2 outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all placeholder:text-white/20 rounded-sm"
+                  />
                 </div>
               </div>
 
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {isLoadingPRs && (
                   <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-white/40">
                     보도자료 불러오는 중...
@@ -1162,89 +1237,141 @@ export default function NewsDashboard() {
                     보도자료가 없습니다
                   </div>
                 )}
-                {!isLoadingPRs && pressReleases.map((pr, idx) => (
-                  <motion.div
-                    key={pr.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.4, delay: idx * 0.05, ease: "easeOut" }}
-                    onClick={() => handleSelectPR(pr)}
-                    className="group relative bg-white/[0.015] border border-white/10 hover:bg-white/[0.04] hover:border-white/30 transition-all duration-300 p-3 sm:py-3 sm:px-4 flex flex-col sm:flex-row gap-3 items-start cursor-pointer overflow-visible rounded-[2px]"
-                  >
-                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-white/0 group-hover:bg-white/40 transition-colors duration-300" />
-
-                    {pr.thumbnailUrl && (
-                      <div className="group/thumb relative z-20 shrink-0 w-full sm:w-[112px] h-32 sm:h-[112px] overflow-visible rounded-[2px]">
-                        <div className="h-full w-full overflow-hidden rounded-[2px] bg-white/[0.03] border border-white/10">
-                          <img
-                            src={pr.thumbnailUrl}
-                            alt=""
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => {
-                              (e.currentTarget.closest('.group\\/thumb') as HTMLElement | null)?.style.setProperty('display', 'none');
-                            }}
-                            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity rounded-[2px]"
-                          />
-                        </div>
-                        <div className="pointer-events-none absolute left-full top-1/2 z-[120] ml-5 hidden w-[420px] -translate-y-1/2 overflow-hidden rounded-[3px] border border-white/25 bg-black shadow-[0_30px_100px_rgba(0,0,0,0.85),0_0_45px_rgba(255,255,255,0.12)] sm:group-hover/thumb:block">
-                          <img
-                            src={pr.thumbnailUrl}
-                            alt=""
-                            referrerPolicy="no-referrer"
-                            className="max-h-[340px] w-full object-contain bg-black"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="min-w-0 flex-1 space-y-1.5 w-full pl-1.5">
-                      <div className="flex items-center gap-2.5">
-                        {pr.isNew && (
-                          <motion.span
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: [0.7, 1, 0.7] }}
-                            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                            className="text-[9px] uppercase tracking-[0.2em] bg-red-600/80 border border-red-500/50 text-white px-1.5 py-0.5 font-bold rounded-[2px] relative overflow-hidden"
-                          >
-                            <span className="relative z-10">New</span>
-                          </motion.span>
-                        )}
-                        <SourceLogo source={pr.source} />
-                        <span className="text-[9px] font-sans uppercase tracking-[0.2em] text-accent/70">{pr.date}</span>
-                      </div>
-                      <h4 className="text-[17px] sm:text-[19px] font-sans font-[700] text-white/90 group-hover:text-white transition-colors tracking-tight leading-snug drop-shadow-sm line-clamp-2">{pr.title}</h4>
-                      <p className="text-[13px] font-sans font-normal text-white/60 max-w-5xl leading-relaxed line-clamp-2">{pr.summary}</p>
+                {!isLoadingPRs && !prsError && pressReleases.length > 0 && (
+                  <>
+                    <div className="flex items-center justify-between border-y border-white/10 py-2 text-[9px] font-sans uppercase tracking-[0.2em] text-accent/70">
+                      <span>수집처별 보기</span>
+                      <span>{filteredPressReleases.length} / {pressReleases.length}건</span>
                     </div>
-                    <div className="flex shrink-0 flex-row flex-wrap gap-2 items-start justify-start opacity-55 transition-opacity group-hover:opacity-100 sm:min-h-[112px] sm:w-28 sm:flex-col sm:items-end sm:justify-between sm:pt-1.5">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDetailPressRelease(pr);
-                        }}
-                        className="text-[9px] uppercase tracking-[0.2em] font-sans text-accent hover:text-ink flex items-center gap-1.5 transition-all hover:gap-2"
-                      >
-                        자세히 보기 <Info className="w-2.5 h-2.5" />
-                      </button>
-                      {pr.detail_url ? (
-                        <a
-                          href={pr.detail_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-[9px] uppercase tracking-[0.2em] font-sans text-ink flex items-center gap-1.5 transition-all hover:gap-2"
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
+                      {pressReleaseColumns.map((column, columnIdx) => (
+                        <section
+                          key={column.key}
+                          className="min-w-0 overflow-visible rounded-[2px] border border-white/10 bg-white/[0.012] p-2.5 shadow-[0_0_26px_rgba(0,0,0,0.18)]"
                         >
-                          원문 보기 <ExternalLink className="w-2.5 h-2.5" />
-                        </a>
-                      ) : (
-                        <span className="text-[9px] uppercase tracking-[0.2em] font-sans text-white/30 flex items-center gap-1.5">
-                          원문 없음
-                        </span>
-                      )}
+                          <div className="mb-2.5 flex min-h-10 items-center justify-between gap-2 border-b border-white/10 pb-2">
+                            <div className="min-w-0 space-y-1">
+                              <div className="text-[8px] uppercase tracking-[0.22em] text-accent/55">
+                                source {columnIdx + 1}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <SourceLogo source={column.sourceForLogo} />
+                                <span className="truncate text-[11px] font-sans font-bold tracking-[0.08em] text-white/80">
+                                  {column.label}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-[9px] font-mono text-white/55">
+                              {column.items.length}
+                            </span>
+                          </div>
+
+                          <div className="space-y-2.5">
+                            {column.items.length === 0 ? (
+                              <div className="flex min-h-[180px] items-center justify-center rounded-[2px] border border-dashed border-white/10 bg-black/20 px-4 text-center text-[10px] font-sans uppercase tracking-[0.2em] text-white/25">
+                                {pressQuery ? '검색 결과 없음' : '수집된 보도자료 없음'}
+                              </div>
+                            ) : (
+                              column.items.map((pr, idx) => (
+                                <motion.div
+                                  key={pr.id}
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ duration: 0.35, delay: Math.min(idx * 0.03, 0.18), ease: "easeOut" }}
+                                  onClick={() => handleSelectPR(pr)}
+                                  className="group relative flex min-h-[210px] cursor-pointer flex-col overflow-visible rounded-[2px] border border-white/10 bg-[#080808]/80 p-2.5 transition-all duration-300 hover:border-white/30 hover:bg-white/[0.04]"
+                                >
+                                  <div className="absolute left-0 top-0 h-full w-[2px] bg-white/0 transition-colors duration-300 group-hover:bg-white/40" />
+
+                                  <div className="mb-2 flex items-start justify-between gap-2">
+                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                      {pr.isNew && (
+                                        <motion.span
+                                          initial={{ opacity: 0 }}
+                                          animate={{ opacity: [0.7, 1, 0.7] }}
+                                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                                          className="rounded-[2px] border border-red-500/50 bg-red-600/80 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.2em] text-white"
+                                        >
+                                          New
+                                        </motion.span>
+                                      )}
+                                      <span className="text-[8px] font-sans uppercase tracking-[0.2em] text-accent/65">{pr.date}</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setDetailPressRelease(pr);
+                                      }}
+                                      className="shrink-0 text-[8px] uppercase tracking-[0.18em] font-sans text-accent/75 hover:text-ink flex items-center gap-1 transition-all hover:gap-1.5"
+                                    >
+                                      자세히 <Info className="h-2.5 w-2.5" />
+                                    </button>
+                                  </div>
+
+                                  {pr.thumbnailUrl && (
+                                    <div className="group/thumb relative z-20 mb-2.5 aspect-[16/10] overflow-visible rounded-[2px]">
+                                      <div className="h-full w-full overflow-hidden rounded-[2px] border border-white/10 bg-white/[0.03]">
+                                        <img
+                                          src={pr.thumbnailUrl}
+                                          alt=""
+                                          loading="lazy"
+                                          referrerPolicy="no-referrer"
+                                          onError={(e) => {
+                                            (e.currentTarget.closest('.group\\/thumb') as HTMLElement | null)?.style.setProperty('display', 'none');
+                                          }}
+                                          className="h-full w-full rounded-[2px] object-cover opacity-80 transition-all duration-300 group-hover:opacity-100 group-hover/thumb:scale-[1.03]"
+                                        />
+                                      </div>
+                                      <div className="pointer-events-none absolute left-1/2 top-full z-[140] mt-3 hidden w-[360px] -translate-x-1/2 overflow-hidden rounded-[3px] border border-white/25 bg-black shadow-[0_30px_100px_rgba(0,0,0,0.85),0_0_45px_rgba(255,255,255,0.12)] xl:group-hover/thumb:block">
+                                        <img
+                                          src={pr.thumbnailUrl}
+                                          alt=""
+                                          referrerPolicy="no-referrer"
+                                          className="max-h-[320px] w-full object-contain bg-black"
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div className="flex flex-1 flex-col gap-1.5">
+                                    <h4 className="text-[14px] font-sans font-[700] leading-snug tracking-tight text-white/90 line-clamp-3 transition-colors group-hover:text-white">
+                                      {pr.title}
+                                    </h4>
+                                    <p className="text-[11px] font-sans leading-relaxed text-white/52 line-clamp-3">
+                                      {pr.summary}
+                                    </p>
+                                  </div>
+
+                                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-white/10 pt-2">
+                                    <span className="truncate text-[8px] uppercase tracking-[0.18em] text-white/28">
+                                      선택해서 관련기사 검색
+                                    </span>
+                                    {pr.detail_url ? (
+                                      <a
+                                        href={pr.detail_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="shrink-0 text-[8px] uppercase tracking-[0.18em] font-sans text-ink/75 hover:text-ink flex items-center gap-1 transition-all hover:gap-1.5"
+                                      >
+                                        원문 <ExternalLink className="h-2.5 w-2.5" />
+                                      </a>
+                                    ) : (
+                                      <span className="shrink-0 text-[8px] uppercase tracking-[0.18em] font-sans text-white/25">
+                                        원문 없음
+                                      </span>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              ))
+                            )}
+                          </div>
+                        </section>
+                      ))}
                     </div>
-                  </motion.div>
-                ))}
+                  </>
+                )}
               </div>
             </motion.div>
           )}
