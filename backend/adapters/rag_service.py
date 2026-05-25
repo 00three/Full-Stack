@@ -15,21 +15,18 @@ from rag.search import hybrid_search
 
 
 _RELATED_QUERY_MAX_CHARS = 1200
-_RELATED_MAX_TERMS = 6
-# 기본값 벡터 하이브리드 검색 ON. 키워드 매칭만 쓰려면 RELATED_SEARCH_USE_VECTOR=0
+_RELATED_MAX_TERMS = 8
+_RELATED_MIN_MATCH = 2  # 최소 이 개수의 키워드가 매칭되어야 결과에 포함
 _RELATED_USE_VECTOR = os.getenv("RELATED_SEARCH_USE_VECTOR", "1") == "1"
+
 _TERM_RE = re.compile(r"[0-9A-Za-z가-힣]{2,}")
+_PHRASE_RE = re.compile(r"[가-힣]{2,}[\s·][가-힣]{2,}")  # 2어절 구문 추출
+
 _STOP_TERMS = {
-    "방송",
-    "보도자료",
-    "관련",
-    "오늘",
-    "지난",
-    "이번",
-    "대한",
-    "통해",
-    "위해",
-    "에서",
+    "방송", "보도자료", "관련", "오늘", "지난", "이번", "대한", "통해",
+    "위해", "에서", "있다", "한다", "된다", "것이", "하는", "대해",
+    "따른", "위한", "등을", "발표", "결과", "현재", "진행", "강화",
+    "제고", "방안", "추진", "검토", "실시", "확대", "개선", "운영",
 }
 
 
@@ -45,10 +42,28 @@ def _compact_related_query(text: str) -> str:
 
 
 def _related_terms(*texts: str | None) -> list[str]:
+    """핵심 키워드 추출. 구문 우선, 단일어 보충."""
     seen: set[str] = set()
     terms: list[str] = []
+
+    # 1차: 2어절 구문 추출 (더 정확한 매칭)
+    for text in texts:
+        if not text:
+            continue
+        for phrase in _PHRASE_RE.findall(text):
+            normalized = phrase.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            terms.append(phrase)
+            if len(terms) >= _RELATED_MAX_TERMS:
+                return terms
+
+    # 2차: 단일 단어 보충 (3글자 이상, 불용어 제외)
     for text in texts:
         for term in _TERM_RE.findall(text or ""):
+            if len(term) < 3:
+                continue
             normalized = term.lower()
             if normalized in seen or normalized in _STOP_TERMS:
                 continue
@@ -83,17 +98,15 @@ class DBRAGService:
         # 있으면 해당 보도자료에 매핑된 reference_article만 반환한다.
         if source_release_id:
             results = self._linked_references(source_release_id)
-        elif not query_text or not query_text.strip():
-            return []
-        elif not _RELATED_USE_VECTOR:
+
+        # linked 참고기사가 없으면 키워드 검색으로 fallback
+        if not results and query_text and query_text.strip():
             results = self._fast_keyword_related(
                 query_text=query_text,
                 source_release_id=source_release_id,
                 source_release_title=source_release_title,
                 max_results=max_results * 4,
             )
-        else:
-            results = self._vector_related(query_text)
 
         return self._format_related_results(
             results=results,
@@ -144,33 +157,40 @@ class DBRAGService:
             return []
 
         score_parts = []
-        where_parts = []
+        match_count_parts = []
         score_params: list[str] = []
-        where_params: list[str] = []
+        match_params: list[str] = []
         for term in terms:
             like = f"%{term}%"
             score_parts.append(
-                "(CASE WHEN d.title ILIKE %s THEN 4 ELSE 0 END + "
-                "CASE WHEN d.original_text ILIKE %s THEN 1 ELSE 0 END)"
+                "(CASE WHEN d.title ILIKE %s THEN 6 ELSE 0 END + "
+                "CASE WHEN d.original_text ILIKE %s THEN 2 ELSE 0 END)"
             )
             score_params.extend([like, like])
-            where_parts.append("(d.title ILIKE %s OR d.original_text ILIKE %s)")
-            where_params.extend([like, like])
+            match_count_parts.append(
+                "(CASE WHEN d.title ILIKE %s OR d.original_text ILIKE %s THEN 1 ELSE 0 END)"
+            )
+            match_params.extend([like, like])
+
+        min_match = min(_RELATED_MIN_MATCH, len(terms))
 
         sql = f"""
-            SELECT d.id, d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
-                   d.raw_document_id, rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
-                   rd.image_urls,
-                   ({' + '.join(score_parts)}) AS rerank_score
-            FROM documents d
-            JOIN raw_documents rd ON rd.id = d.raw_document_id
-            WHERE rd.document_kind IN ('press_release', 'reference_article')
-              AND (%s IS NULL OR rd.doc_id <> %s)
-              AND ({' OR '.join(where_parts)})
-            ORDER BY rerank_score DESC, d.date DESC NULLS LAST
+            SELECT * FROM (
+                SELECT d.id, d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
+                       d.raw_document_id, rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
+                       rd.image_urls,
+                       ({' + '.join(score_parts)}) AS rerank_score,
+                       ({' + '.join(match_count_parts)}) AS match_count
+                FROM documents d
+                JOIN raw_documents rd ON rd.id = d.raw_document_id
+                WHERE rd.document_kind IN ('press_release', 'reference_article')
+                  AND (%s IS NULL OR rd.doc_id <> %s)
+            ) sub
+            WHERE match_count >= %s
+            ORDER BY rerank_score DESC, date DESC NULLS LAST
             LIMIT %s
         """
-        params = score_params + [source_release_id, source_release_id] + where_params + [max_results]
+        params = score_params + match_params + [source_release_id, source_release_id] + [min_match, max_results]
         with _connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(sql, params)

@@ -17,6 +17,10 @@ from rag.llm import (
     stream_generate_article_text,
     verify_article,
 )
+try:
+    from backend.pipeline_logger import PipelineLogger
+except ImportError:
+    PipelineLogger = None
 
 
 _PROGRESS_INTERVAL_SECONDS = 2.5
@@ -44,11 +48,54 @@ class LLMArticleGenerator:
         Returns:
             {title, lead, body, citations, extracted_json}
         """
+        log = PipelineLogger() if PipelineLogger else type('_NullLog', (), {'step': lambda *a, **k: None, 'finish': lambda *a: None})()
+
+        # 보도자료 선택 로그
+        for pr in press_releases:
+            log.step("press_release_selected", {
+                "doc_id": pr.get("id") or pr.get("doc_id", ""),
+                "title": pr.get("title", ""),
+                "source": pr.get("source", ""),
+                "date": str(pr.get("date", "")),
+                "content_length": len(pr.get("content_text") or ""),
+            })
+
+        # 참고기사 chunks 로그
+        log.step("chunks_retrieved", {
+            "total_count": len(related_chunks),
+            "used_count": min(len(related_chunks), llm_config.max_related_chunks),
+            "chunks_preview": [
+                {
+                    "chunk_id": c.get("chunk_id", ""),
+                    "source": c.get("source", ""),
+                    "title": c.get("title", "")[:40],
+                    "text_preview": (c.get("original_text") or "")[:60],
+                }
+                for c in related_chunks[:8]
+            ],
+        })
+
         merged = self._build_merged_chunks(press_releases, related_chunks)
         citations = self._build_citations(press_releases, related_chunks)
         extract_model = self._extract_model(provider, model)
 
+        # merged chunks 로그
+        log.step("merged_chunks_built", {
+            "count": len(merged),
+            "pr_count": len(press_releases),
+            "ref_count": len(merged) - len(press_releases),
+            "preview": [
+                {
+                    "source": m.get("source", ""),
+                    "title": m.get("title", "")[:40],
+                    "chars": len(m.get("original_text") or ""),
+                }
+                for m in merged
+            ],
+        })
+
         # LLM 1차: JSON 추출
+        t0 = time.time()
         try:
             extracted = (
                 self._local_extract_json(merged)
@@ -62,7 +109,14 @@ class LLMArticleGenerator:
                 "_error": f"extract_json 실패: {e}",
             }
 
+        log.step("extract_json_result", {
+            "model": extract_model or "local_fast_extract",
+            "elapsed_sec": round(time.time() - t0, 1),
+            "extracted": extracted,
+        })
+
         # LLM 2차: 기사 생성
+        t1 = time.time()
         try:
             article = generate_article(
                 extracted,
@@ -78,11 +132,33 @@ class LLMArticleGenerator:
                 "lead": "",
                 "body": f"LLM 호출 실패: {e}",
             }
+            log.step("error", {"error": str(e), "stage": "generate_article"})
+
         article = self._apply_style_postprocess(
             article,
             style=style,
             created_by=created_by,
         )
+
+        # 최종 결과 로그
+        body = article.get("body", "")
+        import re as _re
+        markers = _re.findall(r'\[(\d+)\]', body)
+        from collections import Counter as _Counter
+        marker_counts = dict(_Counter(markers))
+
+        log.step("article_generated", {
+            "model": model or "default",
+            "elapsed_sec": round(time.time() - t1, 1),
+            "genre": article.get("genre", ""),
+            "title": article.get("title", ""),
+            "lead": article.get("lead", ""),
+            "body_length": len(body),
+            "paragraph_count": len([p for p in body.split('\n') if p.strip()]),
+            "citation_markers": marker_counts,
+        })
+
+        log.finish()
 
         return {
             "title": article.get("title", ""),
@@ -105,9 +181,49 @@ class LLMArticleGenerator:
         created_by: str | None = None,
     ) -> Iterator[dict]:
         """생성 단계를 event dict로 stream."""
+        log = PipelineLogger() if PipelineLogger else type('_NullLog', (), {'step': lambda *a, **k: None, 'finish': lambda *a: None})()
+
+        for pr in press_releases:
+            log.step("press_release_selected", {
+                "doc_id": pr.get("id") or pr.get("doc_id", ""),
+                "title": pr.get("title", ""),
+                "source": pr.get("source", ""),
+                "date": str(pr.get("date", "")),
+                "content_length": len(pr.get("content_text") or ""),
+            })
+
+        log.step("chunks_retrieved", {
+            "total_count": len(related_chunks),
+            "used_count": min(len(related_chunks), llm_config.max_related_chunks),
+            "chunks_preview": [
+                {
+                    "chunk_id": c.get("chunk_id", ""),
+                    "source": c.get("source", ""),
+                    "title": c.get("title", "")[:40],
+                    "text_preview": (c.get("original_text") or "")[:60],
+                }
+                for c in related_chunks[:8]
+            ],
+        })
+
         merged = self._build_merged_chunks(press_releases, related_chunks)
         citations = self._build_citations(press_releases, related_chunks)
 
+        log.step("merged_chunks_built", {
+            "count": len(merged),
+            "pr_count": len(press_releases),
+            "ref_count": len(merged) - len(press_releases),
+            "preview": [
+                {
+                    "source": m.get("source", ""),
+                    "title": m.get("title", "")[:40],
+                    "chars": len(m.get("original_text") or ""),
+                }
+                for m in merged
+            ],
+        })
+
+        t0 = time.time()
         if llm_config.fast_extract:
             yield {
                 "type": "stage",
@@ -127,6 +243,13 @@ class LLMArticleGenerator:
                 stage="extracting",
                 wait_message="핵심 사실을 추출하는 중입니다.",
             )
+
+        log.step("extract_json_result", {
+            "model": self._extract_model(provider, model) or "local_fast_extract",
+            "elapsed_sec": round(time.time() - t0, 1),
+            "extracted": extracted,
+        })
+
         yield {
             "type": "stage",
             "stage": "drafting",
@@ -134,6 +257,7 @@ class LLMArticleGenerator:
             "extracted_json": extracted,
         }
 
+        t1 = time.time()
         raw_parts: list[str] = []
         draft_stream = stream_generate_article_text(
             extracted,
@@ -159,6 +283,25 @@ class LLMArticleGenerator:
             "citations": citations,
             "extracted_json": extracted,
         })
+
+        body = article.get("body", "")
+        import re as _re
+        markers = _re.findall(r'\[(\d+)\]', body)
+        from collections import Counter as _Counter
+
+        log.step("article_generated", {
+            "model": model or "default",
+            "elapsed_sec": round(time.time() - t1, 1),
+            "genre": article.get("genre", ""),
+            "title": article.get("title", ""),
+            "lead": article.get("lead", ""),
+            "body_length": len(body),
+            "paragraph_count": len([p for p in body.split('\n') if p.strip()]),
+            "citation_markers": dict(_Counter(markers)),
+        })
+
+        log.finish()
+
         yield {"type": "article", "article": article}
 
     def extract_only(self, press_release: dict) -> dict:

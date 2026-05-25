@@ -33,6 +33,36 @@ from . import contextualizer
 
 
 # ──────────────────────────────────────────────
+# kiwi 명사 추출 (keywords_text용)
+# ──────────────────────────────────────────────
+
+_kiwi = None
+
+
+def _get_kiwi():
+    global _kiwi
+    if _kiwi is None:
+        from kiwipiepy import Kiwi
+        _kiwi = Kiwi()
+    return _kiwi
+
+
+def extract_keywords(text: str) -> str:
+    """kiwi로 명사+영문+숫자 추출 → 공백 구분 텍스트. tsvector 인덱싱용."""
+    kw = _get_kiwi()
+    seen = set()
+    nouns = []
+    for token in kw.tokenize(text[:2000]):
+        form = token.form
+        if token.tag.startswith("N") or token.tag in ("SL", "SN"):
+            if len(form) < 2 or form.lower() in seen:
+                continue
+            seen.add(form.lower())
+            nouns.append(form)
+    return " ".join(nouns)
+
+
+# ──────────────────────────────────────────────
 # Chunk 데이터클래스
 # ──────────────────────────────────────────────
 
@@ -47,6 +77,7 @@ class Chunk:
     context_prefix: str
     original_text: str
     full_text: str
+    keywords_text: str = ""
     embedding: list[float] = field(default_factory=list)
 
 
@@ -211,6 +242,7 @@ def build_chunks(
                 else ""
             )
             full_text = make_full_text(ctx_prefix, meta_prefix, original)
+            keywords = extract_keywords(original)
             chunks.append(Chunk(
                 raw_document_id=raw_id,
                 chunk_id=chunk_id,
@@ -221,6 +253,7 @@ def build_chunks(
                 context_prefix=ctx_prefix,
                 original_text=original,
                 full_text=full_text,
+                keywords_text=keywords,
             ))
     return chunks
 
@@ -255,8 +288,8 @@ def embed_chunks(chunks: list[Chunk], batch_size: int = 32) -> None:
 INSERT_DOC_SQL = """
 INSERT INTO documents (
     raw_document_id, chunk_id, source, date, title, data_type,
-    context_prefix, original_text, full_text, embedding_dense, source_doc_ids
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+    context_prefix, original_text, full_text, keywords_text, embedding_dense, source_doc_ids
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
 ON CONFLICT (chunk_id) DO UPDATE SET
     raw_document_id = EXCLUDED.raw_document_id,
     source          = EXCLUDED.source,
@@ -266,6 +299,7 @@ ON CONFLICT (chunk_id) DO UPDATE SET
     context_prefix  = EXCLUDED.context_prefix,
     original_text   = EXCLUDED.original_text,
     full_text       = EXCLUDED.full_text,
+    keywords_text   = EXCLUDED.keywords_text,
     embedding_dense = EXCLUDED.embedding_dense,
     source_doc_ids  = EXCLUDED.source_doc_ids
 """
@@ -350,7 +384,7 @@ def insert_documents(
                     (
                         c.raw_document_id, c.chunk_id, c.source, c.date, c.title,
                         c.data_type, c.context_prefix, c.original_text, c.full_text,
-                        c.embedding, json.dumps(initial_sources),
+                        c.keywords_text, c.embedding, json.dumps(initial_sources),
                     ),
                 )
             inserted += 1

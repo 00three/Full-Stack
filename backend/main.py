@@ -24,7 +24,6 @@ app.include_router(assets.router)
 
 @app.on_event("startup")
 def warm_related_search() -> None:
-    # 관련기사 첫 클릭에서 RAG 검색 모듈 import 비용이 튀지 않도록 서버 시작 때 당겨둔다.
     get_rag_service()
 
 

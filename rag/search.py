@@ -46,26 +46,66 @@ def dense_search(query_embedding: list[float], top_k: int = 50) -> list[dict]:
 
 
 # ──────────────────────────────────────────────
-# 2. 키워드 검색 (PostgreSQL tsvector)
+# 2. 키워드 검색 (kiwi 명사 추출 + tsvector OR 매칭)
 # ──────────────────────────────────────────────
 
+_kiwi = None
+
+
+def _get_kiwi():
+    global _kiwi
+    if _kiwi is None:
+        from kiwipiepy import Kiwi
+        _kiwi = Kiwi()
+    return _kiwi
+
+
+def _extract_nouns(text: str, max_nouns: int = 12) -> list[str]:
+    """kiwi로 한국어 명사 추출. 영문/숫자는 그대로 유지."""
+    kw = _get_kiwi()
+    nouns = []
+    seen = set()
+    for token in kw.tokenize(text[:1000]):
+        form = token.form
+        if token.tag.startswith("N") or token.tag in ("SL", "SN"):
+            if len(form) < 2 or form.lower() in seen:
+                continue
+            seen.add(form.lower())
+            nouns.append(form)
+            if len(nouns) >= max_nouns:
+                break
+    return nouns
+
+
 def keyword_search(query_text: str, top_k: int = 50) -> list[dict]:
-    """PostgreSQL tsvector 기반 키워드 검색"""
+    """kiwi 명사 추출 후 tsvector OR 매칭 키워드 검색."""
+    nouns = _extract_nouns(query_text)
+    if not nouns:
+        return []
+
+    # OR 조합 tsquery: '명사1' | '명사2' | '명사3'
+    or_query = " | ".join(f"'{n}'" for n in nouns)
+
+    # keywords_text 컬럼이 있으면 사용 (kiwi 명사 인덱스), 없으면 full_text fallback
     sql = """
         SELECT d.id, d.chunk_id, d.source, d.date, d.title, d.original_text, d.full_text,
                d.raw_document_id, rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
                rd.image_urls,
-               ts_rank(to_tsvector('simple', d.full_text), plainto_tsquery('simple', %s)) AS score
+               ts_rank(
+                   to_tsvector('simple', CASE WHEN d.keywords_text != '' THEN d.keywords_text ELSE d.full_text END),
+                   to_tsquery('simple', %s)
+               ) AS score
         FROM documents d
         JOIN raw_documents rd ON rd.id = d.raw_document_id
-        WHERE to_tsvector('simple', d.full_text) @@ plainto_tsquery('simple', %s)
+        WHERE to_tsvector('simple', CASE WHEN d.keywords_text != '' THEN d.keywords_text ELSE d.full_text END)
+              @@ to_tsquery('simple', %s)
         ORDER BY score DESC
         LIMIT %s
     """
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, (query_text, query_text, top_k))
+            cur.execute(sql, (or_query, or_query, top_k))
             columns = [desc[0] for desc in cur.description]
             return [dict(zip(columns, row)) for row in cur.fetchall()]
     finally:

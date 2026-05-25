@@ -23,3 +23,7 @@ tsconfig.tsbuildinfo
 # 개인 자료 (보고서/스크린샷 등)
 *.docx
 image.png
+
+# 로컬 테스트/평가 전용
+eval/
+backend/pipeline_logger.py

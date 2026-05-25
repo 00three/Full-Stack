@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS documents (
     date             DATE,
     title            VARCHAR(500),
     data_type        VARCHAR(20) NOT NULL
-                     CHECK (data_type IN ('body_text', 'pdf_text', 'table')),
+                     CHECK (data_type IN ('body_text', 'table')),
     context_prefix   TEXT,                                -- 4단계: Contextual Retriever 결과 (없으면 빈 문자열)
     original_text    TEXT NOT NULL,                       -- 청크 원본
     full_text        TEXT NOT NULL,                       -- context_prefix + meta_prefix + original_text
@@ -69,9 +69,14 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE INDEX IF NOT EXISTS idx_documents_embedding_dense
     ON documents USING hnsw (embedding_dense vector_cosine_ops);
 
--- 인덱스: tsvector 키워드 검색 (search.py의 to_tsvector('simple', full_text))
+-- 인덱스: tsvector 키워드 검색 (kiwi 명사 추출 결과)
 CREATE INDEX IF NOT EXISTS idx_documents_fulltext_gin
     ON documents USING gin (to_tsvector('simple', full_text));
+
+-- kiwi 형태소 분석된 명사 텍스트 (검색 정확도 향상용)
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS keywords_text TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_documents_keywords_gin
+    ON documents USING gin (to_tsvector('simple', keywords_text));
 
 -- 인덱스: FK 조인용
 CREATE INDEX IF NOT EXISTS idx_documents_raw_doc

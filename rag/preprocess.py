@@ -1,7 +1,7 @@
 """
 전처리 모듈 (가이드 1·2단계)
 
-- 1단계: 크롤러 JSONL 1건 → (body_text, pdf_text) 결합용 텍스트로 분리
+- 1단계: 크롤러 JSONL 1건 → body_text 추출
 - 2단계: HTML 제거 + 공백 정규화 (숫자/단위/영문/구두점은 보존)
 - source 정규화: 크롤러 출력값 → ERD 표준 약어
 """
@@ -37,7 +37,7 @@ def split_inputs(raw: dict) -> dict[str, str]:
     """
     크롤러 JSONL 1건을 data_type별 텍스트 dict로 분리.
 
-    반환: {"body_text": "...", "pdf_text": "..."}
+    반환: {"body_text": "..."}
     빈 값은 키에서 제외 (청킹 단계에서 skip).
     """
     out = {}
@@ -45,11 +45,6 @@ def split_inputs(raw: dict) -> dict[str, str]:
     if body:
         out["body_text"] = body
 
-    pdf = (raw.get("attachment_text") or "").strip()
-    if pdf:
-        out["pdf_text"] = pdf
-
-    # table_natural: 크롤러 미지원 (가이드 5단계 메모 참조)
     return out
 
 
