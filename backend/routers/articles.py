@@ -26,7 +26,7 @@ class GenerateRequest(BaseModel):
     related_article_ids: list[str]
     created_by: str | None = None
     model_key: str | None = None
-    article_style: Literal["default", "mediaus"] | None = None
+    article_style: Literal["default", "mediaus", "mediaus_song", "mediaus_ko"] | None = None
     article_tone: Literal[
         "default",
         "professional",

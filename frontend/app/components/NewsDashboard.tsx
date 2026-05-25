@@ -1570,7 +1570,8 @@ export default function NewsDashboard() {
                       className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
                     >
                       <option value="default" className="bg-[#101010]">일반 뉴스</option>
-                      <option value="mediaus" className="bg-[#101010]">미디어스 스타일</option>
+                      <option value="mediaus_song" className="bg-[#101010]">미디어스 — 송창한</option>
+                      <option value="mediaus_ko" className="bg-[#101010]">미디어스 — 고성욱</option>
                     </select>
                   </label>
 
