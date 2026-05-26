@@ -109,4 +109,12 @@ def split(
     if current:
         chunks.append('\n'.join(current))
 
-    return chunks
+    # 최소 길이 필터: 50자 미만 chunk는 이전 chunk에 병합하거나 버림
+    min_size = 50
+    filtered = []
+    for chunk in chunks:
+        if len(chunk) >= min_size:
+            filtered.append(chunk)
+        elif filtered:
+            filtered[-1] = filtered[-1] + '\n' + chunk
+    return filtered

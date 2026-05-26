@@ -16,7 +16,7 @@ from rag.search import hybrid_search
 
 _RELATED_QUERY_MAX_CHARS = 1200
 _RELATED_MAX_TERMS = 8
-_RELATED_MIN_MATCH = 2  # 최소 이 개수의 키워드가 매칭되어야 결과에 포함
+_RELATED_MIN_MATCH = 1  # 최소 이 개수의 키워드가 매칭되어야 결과에 포함
 _RELATED_USE_VECTOR = os.getenv("RELATED_SEARCH_USE_VECTOR", "1") == "1"
 
 _TERM_RE = re.compile(r"[0-9A-Za-z가-힣]{2,}")
@@ -84,7 +84,7 @@ class DBRAGService:
         source_release_title: str | None = None,
         source_release_source: str | None = None,
         source_release_date: str | None = None,
-        max_results: int = 10,
+        max_results: int = 30,
     ) -> list[dict]:
         """
         선택된 보도자료(source_release_id)에 크롤러가 parent_doc_id로
