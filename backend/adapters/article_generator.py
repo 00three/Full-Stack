@@ -356,7 +356,7 @@ class LLMArticleGenerator:
         style: str | None,
         created_by: str | None,
     ) -> dict:
-        if (style or "").lower() != "mediaus":
+        if (style or "").lower() not in ("mediaus", "mediaus_song", "mediaus_ko"):
             return article
 
         reporter = (created_by or "김홍근").strip()

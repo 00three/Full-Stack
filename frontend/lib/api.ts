@@ -54,7 +54,7 @@ export interface LLMModelCatalog {
   models: LLMModelOption[];
 }
 
-export type ArticleStyle = 'default' | 'mediaus';
+export type ArticleStyle = 'default' | 'mediaus' | 'mediaus_song' | 'mediaus_ko';
 export type ArticleTone =
   | 'default'
   | 'professional'

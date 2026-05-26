@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import logging
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -21,7 +22,7 @@ _RELATED_USE_VECTOR = os.getenv("RELATED_SEARCH_USE_VECTOR", "1") == "1"
 
 _TERM_RE = re.compile(r"[0-9A-Za-z가-힣]{2,}")
 _PHRASE_RE = re.compile(r"[가-힣]{2,}[\s·][가-힣]{2,}")  # 2어절 구문 추출
-
+logger = logging.getLogger(__name__)
 _STOP_TERMS = {
     "방송", "보도자료", "관련", "오늘", "지난", "이번", "대한", "통해",
     "위해", "에서", "있다", "한다", "된다", "것이", "하는", "대해",
@@ -90,18 +91,28 @@ class DBRAGService:
         선택된 보도자료(source_release_id)에 크롤러가 parent_doc_id로
         연결해 둔 참고기사(reference_article)를 반환한다.
         같은 (source, title, date) 기사당 chunk 1개만 남겨 frontend 포맷으로 반환.
-        source_release_id가 없을 때만 글로벌 유사도 검색으로 폴백한다.
+        직접 연결된 참고기사가 없으면 글로벌 유사도 검색으로 폴백한다.
         """
         # 크롤러가 parent_doc_id로 연결해 둔 참고기사를 우선 사용한다.
-        # 글로벌 유사도 검색은 보도자료 종류·소속을 구분하지 못해
-        # 다른 보도자료를 "참고기사"로 끌어오므로, source_release_id가
-        # 있으면 해당 보도자료에 매핑된 reference_article만 반환한다.
+        # 과거 데이터에는 같은 NSP/NODONG 보도자료가 공백/언더스코어 doc_id로
+        # 중복 저장된 케이스가 있어, id 매칭이 실패하면 제목/출처/날짜로도
+        # 연결된 reference_article을 한 번 더 찾는다.
+        results: list[dict] = []
         if source_release_id:
             results = self._linked_references(source_release_id)
+            if not results and source_release_title:
+                results = self._linked_references_by_identity(
+                    title=source_release_title,
+                    source=source_release_source,
+                    date=source_release_date,
+                )
 
-        # linked 참고기사가 없으면 키워드 검색으로 fallback
-        if not results and query_text and query_text.strip():
-            results = self._fast_keyword_related(
+        # MBC/KCC처럼 크롤러가 직접 reference_article을 만들지 않는 소스도 있다.
+        # 직접 연결이 없을 때는 빈 화면 대신 기존 RAG 유사도 검색으로 폴백한다.
+        if not results:
+            if not query_text or not query_text.strip():
+                return []
+            results = self._global_related(
                 query_text=query_text,
                 source_release_id=source_release_id,
                 source_release_title=source_release_title,
@@ -114,6 +125,44 @@ class DBRAGService:
             source_release_title=source_release_title,
             source_release_source=source_release_source,
             source_release_date=source_release_date,
+            max_results=max_results,
+        )
+
+    def _global_related(
+        self,
+        *,
+        query_text: str,
+        source_release_id: str | None,
+        source_release_title: str | None,
+        max_results: int,
+    ) -> list[dict]:
+        if source_release_id:
+            return self._fast_keyword_related(
+                query_text=query_text,
+                source_release_id=source_release_id,
+                source_release_title=source_release_title,
+                max_results=max_results,
+            )
+
+        if not _RELATED_USE_VECTOR:
+            return self._fast_keyword_related(
+                query_text=query_text,
+                source_release_id=source_release_id,
+                source_release_title=source_release_title,
+                max_results=max_results,
+            )
+
+        try:
+            results = self._vector_related(query_text)
+            if results:
+                return results
+        except Exception as exc:
+            logger.warning("Vector related search failed; falling back to keyword search: %s", exc)
+
+        return self._fast_keyword_related(
+            query_text=query_text,
+            source_release_id=source_release_id,
+            source_release_title=source_release_title,
             max_results=max_results,
         )
 
@@ -137,6 +186,42 @@ class DBRAGService:
         with _connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(sql, (source_release_id,))
+                return list(cur.fetchall())
+
+    def _linked_references_by_identity(
+        self,
+        *,
+        title: str | None,
+        source: str | None,
+        date: str | None,
+    ) -> list[dict]:
+        if not title:
+            return []
+
+        sql = """
+            SELECT d.id, d.chunk_id, d.source, d.date, d.title,
+                   d.original_text, d.full_text, d.raw_document_id,
+                   rd.doc_id AS raw_doc_id, rd.document_kind, rd.detail_url,
+                   rd.image_urls
+            FROM documents d
+            JOIN raw_documents rd ON rd.id = d.raw_document_id
+            WHERE rd.document_kind = 'reference_article'
+              AND EXISTS (
+                  SELECT 1
+                  FROM raw_documents parent
+                  WHERE parent.document_kind = 'press_release'
+                    AND parent.doc_id = rd.parent_doc_id
+                    AND parent.title = %s
+                    AND (%s IS NULL OR parent.source = %s)
+                    AND (%s IS NULL OR parent.date::text = %s)
+              )
+            ORDER BY d.date DESC NULLS LAST, d.chunk_id
+        """
+        source_param = source or None
+        date_param = date or None
+        with _connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(sql, (title, source_param, source_param, date_param, date_param))
                 return list(cur.fetchall())
 
     def _vector_related(self, query_text: str) -> list[dict]:

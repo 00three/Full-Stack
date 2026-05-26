@@ -295,6 +295,48 @@ type ExportImageData = InsertedArticleImage & {
   height: number;
 };
 
+type SourceColumnConfig = {
+  key: 'kcc' | 'union' | 'mbc' | 'nsp';
+  label: string;
+  sourceForLogo: string;
+  aliases: string[];
+};
+
+const SOURCE_COLUMNS: SourceColumnConfig[] = [
+  {
+    key: 'kcc',
+    label: '방송통신위원회',
+    sourceForLogo: '방송통신위원회',
+    aliases: ['방송통신위원회', 'KCC'],
+  },
+  {
+    key: 'union',
+    label: '언론노조',
+    sourceForLogo: '언론노조',
+    aliases: ['언론노조', 'NODONG'],
+  },
+  {
+    key: 'mbc',
+    label: 'MBC',
+    sourceForLogo: 'MBC',
+    aliases: ['MBC'],
+  },
+  {
+    key: 'nsp',
+    label: '국회도서관',
+    sourceForLogo: '국회도서관',
+    aliases: ['국회도서관', 'NSP', 'NAIL'],
+  },
+];
+
+const resolveSourceColumnKey = (source: string): SourceColumnConfig['key'] => {
+  const normalized = source.trim().toLowerCase();
+  const matched = SOURCE_COLUMNS.find((column) =>
+    column.aliases.some((alias) => normalized.includes(alias.toLowerCase())),
+  );
+  return matched?.key ?? 'nsp';
+};
+
 const GENERATION_FLOW: GenerationStep[] = [
   { stage: 'extracting', message: '핵심 사실을 정리하는 중입니다.' },
   { stage: 'drafting', message: '기사 초안 생성을 요청했습니다.' },
@@ -322,6 +364,8 @@ export default function NewsDashboard() {
   const [pressReleases, setPressReleases] = useState<PressRelease[]>([]);
   const [isLoadingPRs, setIsLoadingPRs] = useState(true);
   const [prsError, setPrsError] = useState<string | null>(null);
+  const [pressQuery, setPressQuery] = useState('');
+  const [selectedSourceFilter, setSelectedSourceFilter] = useState<SourceColumnConfig['key'] | 'all'>('all');
   const [selectedPR, setSelectedPR] = useState<PressRelease | null>(null);
   const [relatedArticles, setRelatedArticles] = useState<RelatedArticle[]>([]);
   const [relatedQuery, setRelatedQuery] = useState('');
@@ -490,6 +534,23 @@ export default function NewsDashboard() {
       return haystack.includes(query);
     });
   }, [relatedArticles, relatedQuery]);
+
+  const filteredPressReleases = useMemo(() => {
+    const query = pressQuery.trim().toLowerCase();
+    return pressReleases.filter((pr) => {
+      if (selectedSourceFilter !== 'all' && resolveSourceColumnKey(pr.source) !== selectedSourceFilter) {
+        return false;
+      }
+      if (!query) return true;
+      const haystack = [
+        pr.title,
+        pr.source,
+        pr.date,
+        pr.summary,
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [pressReleases, pressQuery, selectedSourceFilter]);
 
   const detailImages = useMemo(() => {
     if (!detailPressRelease) return [];
@@ -1142,11 +1203,59 @@ export default function NewsDashboard() {
                 </div>
                 <div className="relative w-full sm:w-64 group">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-accent group-focus-within:text-ink transition-colors" />
-                  <input type="text" placeholder="검색어 입력..." className="w-full bg-white/[0.02] border border-white/10 text-ink text-xs pl-9 pr-3 py-2 outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all placeholder:text-white/20 rounded-sm" />
+                  <input
+                    type="text"
+                    value={pressQuery}
+                    onChange={(e) => setPressQuery(e.target.value)}
+                    placeholder="검색어 입력..."
+                    className="w-full bg-white/[0.02] border border-white/10 text-ink text-xs pl-9 pr-3 py-2 outline-none focus:border-white/40 focus:bg-white/[0.05] transition-all placeholder:text-white/20 rounded-sm"
+                  />
                 </div>
               </div>
 
-              <div className="space-y-2.5">
+              {!isLoadingPRs && !prsError && pressReleases.length > 0 && (
+                <div className="space-y-2 border-y border-white/10 py-3">
+                  <div className="flex items-center justify-between text-[9px] font-sans uppercase tracking-[0.2em] text-accent/70">
+                    <span>수집처 필터</span>
+                    <span>{filteredPressReleases.length} / {pressReleases.length}건</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSourceFilter('all')}
+                      className={`rounded-sm border px-3 py-1.5 text-[10px] font-sans font-bold uppercase tracking-[0.16em] transition-all ${
+                        selectedSourceFilter === 'all'
+                          ? 'border-white/60 bg-white/[0.16] text-white shadow-[0_0_14px_rgba(255,255,255,0.16)]'
+                          : 'border-white/10 bg-white/[0.03] text-white/55 hover:border-white/30 hover:text-white'
+                      }`}
+                    >
+                      전체 <span className="ml-1 font-mono opacity-60">{pressReleases.length}</span>
+                    </button>
+                    {SOURCE_COLUMNS.map((column) => {
+                      const count = pressReleases.filter((pr) => resolveSourceColumnKey(pr.source) === column.key).length;
+                      const active = selectedSourceFilter === column.key;
+                      return (
+                        <button
+                          key={column.key}
+                          type="button"
+                          onClick={() => setSelectedSourceFilter(column.key)}
+                          className={`flex items-center gap-2 rounded-sm border px-3 py-1.5 transition-all ${
+                            active
+                              ? 'border-white/60 bg-white/[0.16] text-white shadow-[0_0_14px_rgba(255,255,255,0.16)]'
+                              : 'border-white/10 bg-white/[0.03] text-white/55 hover:border-white/30 hover:text-white'
+                          }`}
+                        >
+                          <SourceLogo source={column.sourceForLogo} />
+                          <span className="text-[10px] font-sans font-bold tracking-[0.1em]">{column.label}</span>
+                          <span className="font-mono text-[9px] opacity-60">{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3">
                 {isLoadingPRs && (
                   <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-white/40">
                     보도자료 불러오는 중...
@@ -1162,7 +1271,12 @@ export default function NewsDashboard() {
                     보도자료가 없습니다
                   </div>
                 )}
-                {!isLoadingPRs && pressReleases.map((pr, idx) => (
+                {!isLoadingPRs && !prsError && pressReleases.length > 0 && filteredPressReleases.length === 0 && (
+                  <div className="text-center py-10 text-[11px] font-sans uppercase tracking-[0.2em] text-white/40">
+                    조건에 맞는 보도자료가 없습니다
+                  </div>
+                )}
+                {!isLoadingPRs && !prsError && filteredPressReleases.map((pr, idx) => (
                   <motion.div
                     key={pr.id}
                     initial={{ opacity: 0, y: 10 }}
@@ -1456,7 +1570,8 @@ export default function NewsDashboard() {
                       className="w-full bg-white/[0.03] border border-white/15 text-white text-sm font-sans px-3 py-3 outline-none focus:border-white/40 rounded-sm"
                     >
                       <option value="default" className="bg-[#101010]">일반 뉴스</option>
-                      <option value="mediaus" className="bg-[#101010]">미디어스 스타일</option>
+                      <option value="mediaus_song" className="bg-[#101010]">미디어스 — 송창한</option>
+                      <option value="mediaus_ko" className="bg-[#101010]">미디어스 — 고성욱</option>
                     </select>
                   </label>
 
