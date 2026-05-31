@@ -1,6 +1,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${PG_DATABASE:-rag_db}
       POSTGRES_USER: ${PG_USER:-postgres}
@@ -20,6 +21,7 @@ services:
     build:
       context: ${CRAWLER_CONTEXT:-../Crawler}
       dockerfile: Dockerfile
+    restart: unless-stopped
     command:
       - sh
       - -lc
@@ -36,6 +38,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    restart: unless-stopped
     command: ["python", "-m", "rag.ingest_worker"]
     cpus: "${INGEST_CPUS:-4.0}"
     environment:
@@ -92,6 +95,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    restart: unless-stopped
     environment:
       PG_HOST: ${PG_HOST:-postgres}
       PG_PORT: ${PG_PORT:-5432}
@@ -138,6 +142,7 @@ services:
       args:
         BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
         NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    restart: unless-stopped
     ports:
       - "3000:3000"
     depends_on:

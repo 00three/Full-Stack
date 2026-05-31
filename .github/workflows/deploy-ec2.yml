@@ -31,7 +31,7 @@ jobs:
             git fetch origin main
             git checkout main
             git pull --ff-only origin main
-            sudo docker compose up -d --build postgres backend ingest-worker
+            sudo docker compose up -d --build postgres crawler backend ingest-worker
             sudo docker compose ps
             sudo docker image prune -f
           REMOTE
